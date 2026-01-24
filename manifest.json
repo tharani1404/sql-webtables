@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "SQL on Web Tables",
+  "version": "0.1",
+  "description": "Detect and extract tables from webpages",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "SQL Tables",
+    "default_popup": "popup.html"
+  }
+}
