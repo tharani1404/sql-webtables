@@ -5,14 +5,20 @@ function detectSemanticTables() {
   const results = [];
 
   document.querySelectorAll("table").forEach((table, i) => {
+    // Basic check: skip if table is completely hidden
+    const style = getComputedStyle(table);
+    if (style.display === "none" || style.visibility === "hidden") return;
 
-    const rows = [...table.querySelectorAll("tr")].map(tr =>
+    const trs = [...table.querySelectorAll("tr")];
+    
+    const rows = trs.map(tr =>
       [...tr.querySelectorAll("th, td")]
         .map(td => cleanText(td.innerText || td.textContent))
     );
 
     const nonEmptyRows = rows.filter(r => r.some(c => c));
-
+    
+    // Only skip if completely empty
     if (nonEmptyRows.length === 0) return;
 
     results.push({
@@ -20,7 +26,7 @@ function detectSemanticTables() {
       type: "semantic",
       root: table,
       confidence: 1.0,
-      headers: nonEmptyRows[0],
+      headers: nonEmptyRows[0] || [],
       rows: nonEmptyRows
     });
   });
@@ -46,25 +52,74 @@ function detectRepeatedDivTables() {
 
   parents.forEach((parent, idx) => {
     if (!isVisible(parent)) return;
+    
+    // Skip if inside a table (already handled by semantic detection)
+    if (parent.closest("table")) return;
 
     const children = [...parent.children].filter(isVisible);
     if (children.length < 3) return;
     if (!sameTag(children)) return;
 
+    // Check if this is a horizontal scrolling gallery (like Netflix recommendations)
+    // These are NOT tables - they're lists/galleries
+    const style = getComputedStyle(parent);
+    const isHorizontalScroll = 
+      style.overflowX === "auto" || 
+      style.overflowX === "scroll" ||
+      style.overflow === "auto" ||
+      style.overflow === "scroll";
+    
+    // Check if children are arranged horizontally (gallery pattern)
+    const firstRect = children[0]?.getBoundingClientRect();
+    const lastRect = children[children.length - 1]?.getBoundingClientRect();
+    if (firstRect && lastRect) {
+      const isHorizontalLayout = Math.abs(lastRect.left - firstRect.left) > Math.abs(lastRect.top - firstRect.top);
+      // If horizontal layout with scrolling, it's likely a gallery, not a table
+      if (isHorizontalLayout && (isHorizontalScroll || children.length > 10)) {
+        return; // Skip horizontal galleries
+      }
+    }
+
     const rows = children
       .map(row => extractDivRow(row))
       .filter(r => r.length >= 2);
 
-    if (rows.length < 3) return;
+    // Require at least 3-4 rows for a valid repeated-div table
+    if (rows.length < 4) return;
     if (!similarLengths(rows)) return;
+    
+    // Additional validation: ensure it has tabular structure (multiple columns)
+    const avgCols = rows.reduce((s, r) => s + r.length, 0) / rows.length;
+    if (avgCols < 2) return;
+    
+    // Check that rows are arranged vertically (table pattern, not horizontal list)
+    const firstRowRect = children[0]?.getBoundingClientRect();
+    const secondRowRect = children[1]?.getBoundingClientRect();
+    if (firstRowRect && secondRowRect) {
+      const verticalSpacing = Math.abs(secondRowRect.top - firstRowRect.top);
+      const horizontalSpacing = Math.abs(secondRowRect.left - firstRowRect.left);
+      // If items are mostly horizontal (like a gallery), skip
+      if (horizontalSpacing > verticalSpacing * 2 && children.length > 5) {
+        return; // Likely a horizontal gallery, not a table
+      }
+    }
+
+    // Skip if this is part of our extension UI
+    if (parent.closest("#sql-query-sidebar") || parent.closest("#sql-sidebar-toggle")) {
+      return;
+    }
+
+    // Extract headers from first row, data rows from the rest
+    const headers = rows[0] || [];
+    const dataRows = rows.slice(1);
 
     results.push({
       id: "repeated-" + idx,
       type: "repeated-div",
       root: parent,
       confidence: 0.7,
-      headers: [],
-      rows
+      headers: headers,
+      rows: dataRows
     });
   });
 
@@ -100,6 +155,9 @@ function detectGridFlexTables() {
 
   document.querySelectorAll("*").forEach((el, idx) => {
     if (!isVisible(el)) return;
+    
+    // Skip if inside a table (already handled by semantic detection)
+    if (el.closest("table")) return;
 
     const style = getComputedStyle(el);
     if (!["grid", "inline-grid", "flex", "inline-flex"].includes(style.display)) return;
@@ -123,16 +181,25 @@ function detectGridFlexTables() {
       clusterBy(row, "left", 10).map(col => col[0].text)
     );
 
-    const maxCols = Math.max(...grid.map(r => r.length));
+    const maxCols = Math.max(0, ...grid.map(r => r.length));
     if (maxCols < 2) return;
+
+    // Skip if this is part of our extension UI
+    if (el.closest("#sql-query-sidebar") || el.closest("#sql-sidebar-toggle")) {
+      return;
+    }
+
+    // Extract headers from first row, data rows from the rest
+    const headers = grid[0] || [];
+    const dataRows = grid.slice(1);
 
     results.push({
       id: "grid-" + idx,
       type: "grid-flex",
       root: el,
       confidence: 0.6,
-      headers: [],
-      rows: grid
+      headers: headers,
+      rows: dataRows
     });
   });
 
@@ -167,50 +234,35 @@ function scanPage() {
 
   console.log("Detected tables:", tables);
   window.__WEB_TABLES__ = tables;
+  
+  // Notify sidebar that tables are ready
+  if (window.__SQL_SIDEBAR__) {
+    window.__SQL_SIDEBAR__.updateTables(tables);
+  }
 }
 
-scanPage();
-function highlightTables(tables) {
-  tables.forEach(t => {
-    const r = t.root.getBoundingClientRect();
-    const box = document.createElement("div");
 
-    box.style.position = "fixed";
-    box.style.top = r.top + "px";
-    box.style.left = r.left + "px";
-    box.style.width = r.width + "px";
-    box.style.height = r.height + "px";
-    box.style.border = 
-      t.type === "semantic" ? "3px solid lime" :
-      t.type === "repeated-div" ? "3px solid orange" :
-      "3px solid cyan";
-
-    box.style.zIndex = 999999;
-    box.style.pointerEvents = "none";
-
-    const label = document.createElement("div");
-    label.textContent = t.type;
-    label.style.background = "black";
-    label.style.color = "white";
-    label.style.fontSize = "12px";
-    label.style.position = "absolute";
-    label.style.top = "0";
-    label.style.left = "0";
-    label.style.padding = "2px 4px";
-
-    box.appendChild(label);
-    document.body.appendChild(box);
-  });
+// Initial scan
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", scanPage);
+} else {
+  scanPage();
 }
-highlightTables(tables);
 
 
 /***********************
  *  HELPERS
  ***********************/
 function isVisible(el) {
+  if (!el) return false;
+  
+  const style = getComputedStyle(el);
+  if (style.display === "none" || style.visibility === "hidden") {
+    return false;
+  }
+  
   const r = el.getBoundingClientRect();
-  return !!(r.width > 5 && r.height > 5);
+  return !!(r.width > 0 && r.height > 0);
 }
 
 function cleanText(text) {
