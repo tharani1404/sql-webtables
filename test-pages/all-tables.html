@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>All Table Types - Test Page</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .section {
+            background: white;
+            padding: 30px;
+            margin-bottom: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #2563eb;
+            margin-bottom: 10px;
+        }
+
+        h2 {
+            color: #374151;
+            margin-top: 0;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+
+        .description {
+            color: #6b7280;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        /* Semantic Table Styles */
+        .semantic-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .semantic-table th,
+        .semantic-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+
+        .semantic-table th {
+            background: #f9fafb;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .semantic-table tr:hover {
+            background: #f9fafb;
+        }
+
+        /* Repeated Div Table Styles */
+        .repeated-div-table {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 20px;
+        }
+
+        .repeated-div-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .repeated-div-cell {
+            flex: 1;
+            padding: 12px;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+        }
+
+        .repeated-div-row:first-child .repeated-div-cell {
+            background: #2563eb;
+            color: white;
+            font-weight: 600;
+        }
+
+        /* Grid Table Styles */
+        .grid-table {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-top: 20px;
+        }
+
+        .grid-cell {
+            padding: 12px;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+        }
+
+        .grid-cell:nth-child(-n+4) {
+            background: #10b981;
+            color: white;
+            font-weight: 600;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            margin-left: 10px;
+        }
+
+        .badge-semantic {
+            background: #10b981;
+            color: white;
+        }
+
+        .badge-repeated {
+            background: #f59e0b;
+            color: white;
+        }
+
+        .badge-grid {
+            background: #06b6d4;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>📊 SQL Web Tables - Test Page</h1>
+    <p style="color: #6b7280;">This page contains examples of all three table types for testing the extension.</p>
+
+    <!-- SEMANTIC TABLE 1 -->
+    <div class="section">
+        <h2>
+            Semantic Table 1: Users Table
+            <span class="badge badge-semantic">semantic</span>
+        </h2>
+        <p class="description">Traditional HTML table using &lt;table&gt;, &lt;tr&gt;, &lt;th&gt;, &lt;td&gt; tags.</p>
+        
+        <table class="semantic-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Age</th>
+                    <th>City</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>1</td>
+                    <td>John Doe</td>
+                    <td>john@example.com</td>
+                    <td>30</td>
+                    <td>New York</td>
+                </tr>
+                <tr>
+                    <td>2</td>
+                    <td>Jane Smith</td>
+                    <td>jane@example.com</td>
+                    <td>25</td>
+                    <td>Los Angeles</td>
+                </tr>
+                <tr>
+                    <td>3</td>
+                    <td>Bob Johnson</td>
+                    <td>bob@example.com</td>
+                    <td>35</td>
+                    <td>Chicago</td>
+                </tr>
+                <tr>
+                    <td>4</td>
+                    <td>Alice Williams</td>
+                    <td>alice@example.com</td>
+                    <td>28</td>
+                    <td>Houston</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- SEMANTIC TABLE 2 -->
+    <div class="section">
+        <h2>
+            Semantic Table 2: Products Table
+            <span class="badge badge-semantic">semantic</span>
+        </h2>
+        <p class="description">Another semantic table with product information.</p>
+        
+        <table class="semantic-table">
+            <thead>
+                <tr>
+                    <th>Product ID</th>
+                    <th>Product Name</th>
+                    <th>Price</th>
+                    <th>Stock</th>
+                    <th>Category</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>P001</td>
+                    <td>Laptop</td>
+                    <td>$999.99</td>
+                    <td>15</td>
+                    <td>Electronics</td>
+                </tr>
+                <tr>
+                    <td>P002</td>
+                    <td>Mouse</td>
+                    <td>$29.99</td>
+                    <td>50</td>
+                    <td>Accessories</td>
+                </tr>
+                <tr>
+                    <td>P003</td>
+                    <td>Keyboard</td>
+                    <td>$79.99</td>
+                    <td>30</td>
+                    <td>Accessories</td>
+                </tr>
+                <tr>
+                    <td>P004</td>
+                    <td>Monitor</td>
+                    <td>$299.99</td>
+                    <td>20</td>
+                    <td>Electronics</td>
+                </tr>
+                <tr>
+                    <td>P005</td>
+                    <td>Headphones</td>
+                    <td>$149.99</td>
+                    <td>25</td>
+                    <td>Accessories</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- REPEATED DIV TABLE 1 -->
+    <div class="section">
+        <h2>
+            Repeated Div Table 1: Orders Table
+            <span class="badge badge-repeated">repeated-div</span>
+        </h2>
+        <p class="description">Table structure created using repeated div elements with same tag structure.</p>
+        
+        <div class="repeated-div-table">
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">Order ID</div>
+                <div class="repeated-div-cell">Customer</div>
+                <div class="repeated-div-cell">Amount</div>
+                <div class="repeated-div-cell">Date</div>
+                <div class="repeated-div-cell">Status</div>
+            </div>
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">ORD-001</div>
+                <div class="repeated-div-cell">John Doe</div>
+                <div class="repeated-div-cell">$299.99</div>
+                <div class="repeated-div-cell">2024-01-15</div>
+                <div class="repeated-div-cell">Shipped</div>
+            </div>
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">ORD-002</div>
+                <div class="repeated-div-cell">Jane Smith</div>
+                <div class="repeated-div-cell">$149.99</div>
+                <div class="repeated-div-cell">2024-01-16</div>
+                <div class="repeated-div-cell">Pending</div>
+            </div>
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">ORD-003</div>
+                <div class="repeated-div-cell">Bob Johnson</div>
+                <div class="repeated-div-cell">$499.99</div>
+                <div class="repeated-div-cell">2024-01-17</div>
+                <div class="repeated-div-cell">Delivered</div>
+            </div>
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">ORD-004</div>
+                <div class="repeated-div-cell">Alice Williams</div>
+                <div class="repeated-div-cell">$79.99</div>
+                <div class="repeated-div-cell">2024-01-18</div>
+                <div class="repeated-div-cell">Processing</div>
+            </div>
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">ORD-005</div>
+                <div class="repeated-div-cell">Charlie Brown</div>
+                <div class="repeated-div-cell">$199.99</div>
+                <div class="repeated-div-cell">2024-01-19</div>
+                <div class="repeated-div-cell">Shipped</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- REPEATED DIV TABLE 2 -->
+    <div class="section">
+        <h2>
+            Repeated Div Table 2: Employees Table
+            <span class="badge badge-repeated">repeated-div</span>
+        </h2>
+        <p class="description">Another repeated-div table with employee data.</p>
+        
+        <div class="repeated-div-table">
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">Employee ID</div>
+                <div class="repeated-div-cell">Name</div>
+                <div class="repeated-div-cell">Department</div>
+                <div class="repeated-div-cell">Salary</div>
+            </div>
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">E001</div>
+                <div class="repeated-div-cell">Sarah Connor</div>
+                <div class="repeated-div-cell">Engineering</div>
+                <div class="repeated-div-cell">$95,000</div>
+            </div>
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">E002</div>
+                <div class="repeated-div-cell">Mike Davis</div>
+                <div class="repeated-div-cell">Marketing</div>
+                <div class="repeated-div-cell">$75,000</div>
+            </div>
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">E003</div>
+                <div class="repeated-div-cell">Lisa Anderson</div>
+                <div class="repeated-div-cell">Sales</div>
+                <div class="repeated-div-cell">$65,000</div>
+            </div>
+            <div class="repeated-div-row">
+                <div class="repeated-div-cell">E004</div>
+                <div class="repeated-div-cell">Tom Wilson</div>
+                <div class="repeated-div-cell">Engineering</div>
+                <div class="repeated-div-cell">$100,000</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GRID TABLE 1 -->
+    <div class="section">
+        <h2>
+            Grid Table 1: Sales Data
+            <span class="badge badge-grid">grid-flex</span>
+        </h2>
+        <p class="description">Table created using CSS Grid layout.</p>
+        
+        <div class="grid-table">
+            <div class="grid-cell">Month</div>
+            <div class="grid-cell">Revenue</div>
+            <div class="grid-cell">Expenses</div>
+            <div class="grid-cell">Profit</div>
+            
+            <div class="grid-cell">January</div>
+            <div class="grid-cell">$50,000</div>
+            <div class="grid-cell">$30,000</div>
+            <div class="grid-cell">$20,000</div>
+            
+            <div class="grid-cell">February</div>
+            <div class="grid-cell">$55,000</div>
+            <div class="grid-cell">$32,000</div>
+            <div class="grid-cell">$23,000</div>
+            
+            <div class="grid-cell">March</div>
+            <div class="grid-cell">$60,000</div>
+            <div class="grid-cell">$35,000</div>
+            <div class="grid-cell">$25,000</div>
+            
+            <div class="grid-cell">April</div>
+            <div class="grid-cell">$58,000</div>
+            <div class="grid-cell">$33,000</div>
+            <div class="grid-cell">$25,000</div>
+            
+            <div class="grid-cell">May</div>
+            <div class="grid-cell">$62,000</div>
+            <div class="grid-cell">$36,000</div>
+            <div class="grid-cell">$26,000</div>
+        </div>
+    </div>
+
+    <!-- GRID TABLE 2 -->
+    <div class="section">
+        <h2>
+            Grid Table 2: Project Status
+            <span class="badge badge-grid">grid-flex</span>
+        </h2>
+        <p class="description">Another grid-based table with project information.</p>
+        
+        <div class="grid-table">
+            <div class="grid-cell">Project</div>
+            <div class="grid-cell">Status</div>
+            <div class="grid-cell">Progress</div>
+            <div class="grid-cell">Deadline</div>
+            
+            <div class="grid-cell">Website Redesign</div>
+            <div class="grid-cell">In Progress</div>
+            <div class="grid-cell">75%</div>
+            <div class="grid-cell">2024-02-15</div>
+            
+            <div class="grid-cell">Mobile App</div>
+            <div class="grid-cell">Planning</div>
+            <div class="grid-cell">20%</div>
+            <div class="grid-cell">2024-03-30</div>
+            
+            <div class="grid-cell">API Development</div>
+            <div class="grid-cell">Completed</div>
+            <div class="grid-cell">100%</div>
+            <div class="grid-cell">2024-01-10</div>
+            
+            <div class="grid-cell">Database Migration</div>
+            <div class="grid-cell">In Progress</div>
+            <div class="grid-cell">60%</div>
+            <div class="grid-cell">2024-02-28</div>
+        </div>
+    </div>
+
+    <!-- FLEX TABLE -->
+    <div class="section">
+        <h2>
+            Flex Table: Inventory
+            <span class="badge badge-grid">grid-flex</span>
+        </h2>
+        <p class="description">Table created using CSS Flexbox layout.</p>
+        
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 20px;">
+            <div style="display: flex; gap: 8px;">
+                <div style="flex: 1; padding: 12px; background: #10b981; color: white; font-weight: 600; border-radius: 4px;">Item</div>
+                <div style="flex: 1; padding: 12px; background: #10b981; color: white; font-weight: 600; border-radius: 4px;">Quantity</div>
+                <div style="flex: 1; padding: 12px; background: #10b981; color: white; font-weight: 600; border-radius: 4px;">Location</div>
+                <div style="flex: 1; padding: 12px; background: #10b981; color: white; font-weight: 600; border-radius: 4px;">Last Updated</div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">Widget A</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">150</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">Warehouse A</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">2024-01-20</div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">Widget B</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">75</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">Warehouse B</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">2024-01-19</div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">Widget C</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">200</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">Warehouse A</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">2024-01-21</div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">Widget D</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">50</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">Warehouse C</div>
+                <div style="flex: 1; padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px;">2024-01-18</div>
+            </div>
+        </div>
+    </div>
+
+    
+
+</body>
+</html>

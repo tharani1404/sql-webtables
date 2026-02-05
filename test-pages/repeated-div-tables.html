@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repeated Div Tables Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .section {
+            background: white;
+            padding: 30px;
+            margin-bottom: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #f59e0b;
+        }
+
+        .table-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 20px;
+        }
+
+        .table-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .table-cell {
+            flex: 1;
+            padding: 12px;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+        }
+
+        .table-row:first-child .table-cell {
+            background: #f59e0b;
+            color: white;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <h1>📊 Repeated Div Tables Test Page</h1>
+    <p>This page contains only repeated-div tables (div-based structures with same tag pattern).</p>
+
+    <div class="section">
+        <h2>Table 1: Customer Orders</h2>
+        <div class="table-container">
+            <div class="table-row">
+                <div class="table-cell">Order ID</div>
+                <div class="table-cell">Customer Name</div>
+                <div class="table-cell">Product</div>
+                <div class="table-cell">Quantity</div>
+                <div class="table-cell">Total Price</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">ORD-1001</div>
+                <div class="table-cell">Sarah Miller</div>
+                <div class="table-cell">Laptop</div>
+                <div class="table-cell">1</div>
+                <div class="table-cell">$1,299.99</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">ORD-1002</div>
+                <div class="table-cell">Mike Chen</div>
+                <div class="table-cell">Mouse</div>
+                <div class="table-cell">2</div>
+                <div class="table-cell">$59.98</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">ORD-1003</div>
+                <div class="table-cell">Emily Davis</div>
+                <div class="table-cell">Keyboard</div>
+                <div class="table-cell">1</div>
+                <div class="table-cell">$89.99</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">ORD-1004</div>
+                <div class="table-cell">David Wilson</div>
+                <div class="table-cell">Monitor</div>
+                <div class="table-cell">2</div>
+                <div class="table-cell">$599.98</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Table 2: Task List</h2>
+        <div class="table-container">
+            <div class="table-row">
+                <div class="table-cell">Task ID</div>
+                <div class="table-cell">Task Name</div>
+                <div class="table-cell">Assignee</div>
+                <div class="table-cell">Priority</div>
+                <div class="table-cell">Due Date</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">TASK-001</div>
+                <div class="table-cell">Design Homepage</div>
+                <div class="table-cell">Alice</div>
+                <div class="table-cell">High</div>
+                <div class="table-cell">2024-02-01</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">TASK-002</div>
+                <div class="table-cell">Write Documentation</div>
+                <div class="table-cell">Bob</div>
+                <div class="table-cell">Medium</div>
+                <div class="table-cell">2024-02-05</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">TASK-003</div>
+                <div class="table-cell">Fix Bug #123</div>
+                <div class="table-cell">Charlie</div>
+                <div class="table-cell">High</div>
+                <div class="table-cell">2024-01-25</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">TASK-004</div>
+                <div class="table-cell">Code Review</div>
+                <div class="table-cell">Diana</div>
+                <div class="table-cell">Low</div>
+                <div class="table-cell">2024-02-10</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>Table 3: Event Schedule</h2>
+        <div class="table-container">
+            <div class="table-row">
+                <div class="table-cell">Event</div>
+                <div class="table-cell">Date</div>
+                <div class="table-cell">Time</div>
+                <div class="table-cell">Location</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">Team Meeting</div>
+                <div class="table-cell">2024-01-25</div>
+                <div class="table-cell">10:00 AM</div>
+                <div class="table-cell">Conference Room A</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">Product Launch</div>
+                <div class="table-cell">2024-02-15</div>
+                <div class="table-cell">2:00 PM</div>
+                <div class="table-cell">Main Hall</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">Training Session</div>
+                <div class="table-cell">2024-02-20</div>
+                <div class="table-cell">9:00 AM</div>
+                <div class="table-cell">Training Room</div>
+            </div>
+            <div class="table-row">
+                <div class="table-cell">Client Presentation</div>
+                <div class="table-cell">2024-02-28</div>
+                <div class="table-cell">3:00 PM</div>
+                <div class="table-cell">Conference Room B</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
