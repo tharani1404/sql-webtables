@@ -36,41 +36,8 @@
 
 ---
 
-## 📁 Files Created/Modified
 
-### New Files:
-- `sidebar.js` - Sidebar functionality
-- `sidebar.css` - Sidebar styling
-
-### Modified Files:
-- `content.js` - Removed highlighting, added sidebar notification
-- `manifest.json` - Added sidebar.js and sidebar.css
-
----
-
-## 🚀 How to Test
-
-### Step 1: Reload Extension
-1. Open Chrome Extensions page (`chrome://extensions/`)
-2. Find "SQL on Web Tables" extension
-3. Click **Reload** button (🔄)
-
-### Step 2: Test on a Web Page
-1. Go to any webpage with tables (e.g., Wikipedia, GitHub)
-2. Look for the **🔍 button** in the bottom-right corner
-3. Click it to open the sidebar
-4. You should see detected tables in the "Tables" tab
-
-### Step 3: Test Query Builder
-1. Click on a table card OR select from dropdown
-2. Check/uncheck columns
-3. See SQL preview update
-4. Click "Run Query"
-5. View results in "Results" tab
-
----
-
-## 🎯 Current Features
+## Current Features
 
 ### ✅ Working:
 - Sidebar toggle (open/close)
@@ -81,7 +48,7 @@
 - Basic query execution
 - Results display
 
-### 🚧 Next Steps (To Implement):
+###  Next Steps (To Implement):
 - Filter builder (WHERE clause)
 - Sorting (ORDER BY)
 - LIMIT/OFFSET options
@@ -93,69 +60,7 @@
 
 
 
-## 📝 Code Structure
-
-### `sidebar.js` Main Functions:
-
-```javascript
-createSidebar()        // Creates sidebar HTML and main layout
-createToggleButton()   // Floating 🔍 button to open/close sidebar
-loadTables()           // Loads tables from window.__WEB_TABLES__ and assigns displayName
-createTableCard()      // Renders each table card in the Tables tab
-focusTable()           // Single-click behavior: select card, sync dropdown, highlight DOM table
-selectTable()          // Double-click/dropdown behavior: focus table + load columns for query
-highlightTableInPage() // Applies visual highlight and scrolls table into view
-loadTableColumns()     // Loads columns for selected table into checkboxes
-updateSQL()            // Updates SQL preview (using query engine if available)
-runQuery()             // Executes query via query-engine.js
-displayResults()       // Renders results table in Results tab
-toggle()               // Opens/closes sidebar, clears highlight on close
-updateTables()         // Called from content.js when detection runs
-```
-
-### State Management:
-
-```javascript
-queryState = {
-  table: null,      // Selected table object
-  columns: [],      // Selected column indices
-  filters: [],     // WHERE conditions (future)
-  sort: [],        // ORDER BY (future)
-  limit: 100       // LIMIT value
-}
-```
-
----
-
-## 🎨 Customization
-
-### Change Sidebar Width:
-In `sidebar.css`:
-```css
-#sql-query-sidebar {
-  width: 500px; /* Change from 400px */
-}
-```
-
-### Change Toggle Button Position:
-In `sidebar.css`:
-```css
-#sql-sidebar-toggle {
-  bottom: 30px;  /* Change position */
-  right: 30px;
-}
-```
-
-### Change Colors:
-In `sidebar.css`, modify:
-- `#2563eb` - Primary blue
-- `#10b981` - Semantic table badge
-- `#f59e0b` - Repeated-div badge
-- `#06b6d4` - Grid-flex badge
-
----
-
-## 📊 Future Plan / Roadmap (For Professor)
+##  Future Plan
 
 This section summarizes the planned work, so it’s clear what has been completed and what comes next.
 
@@ -167,7 +72,7 @@ This section summarizes the planned work, so it’s clear what has been complete
 
 2. **Table metadata**
    - Allow user to rename `Table 1`, `Table 2`, … to custom names
-   - Persist chosen names per page (if feasible)
+   - Persist chosen names per page 
 
 3. **Robustness**
    - Handle tables with no headers more gracefully (auto‑generated column names)
@@ -207,60 +112,5 @@ This section summarizes the planned work, so it’s clear what has been complete
 
 ---
 
-## 🐛 Known Issues / TODO
 
-- [ ] Handle tables with no headers (auto-generate names like `Column 1`, `Column 2`, … everywhere)
-- [ ] Better error handling (e.g., when detection returns inconsistent rows)
-- [ ] Loading states (spinner while scanning large/complex pages)
-- [ ] Keyboard shortcuts (open/close sidebar, run query)
-- [ ] Remember sidebar state (open/closed) per domain
-- [ ] Responsive design for smaller screens
-- [ ] Performance optimization for very large tables
 
----
-
-## 💡 Tips
-
-1. **Debugging**: Use browser DevTools console to check:
-   - `window.__WEB_TABLES__` - Detected tables
-   - `window.__SQL_SIDEBAR__` - Sidebar API
-
-2. **Testing**: Test on different websites:
-   - Wikipedia (semantic tables)
-   - GitHub (div-based structures)
-   - E-commerce sites (product tables)
-
-3. **Development**: 
-   - Make changes to files
-   - Reload extension
-   - Refresh test page
-   - Check console for errors
-
----
-
-## 📚 Resources
-
-- Sidebar mockup: `sidebar-mockup.html`
-- UI Design: `UI_DESIGN.md`
-- Next Steps: `NEXT_STEPS.md`
-- Comparison: `PANEL_VS_SIDEBAR.md`
-
----
-
-## ✅ Checklist
-
-Before moving to next phase, ensure:
-- [ ] Sidebar opens/closes correctly
-- [ ] Tables are displayed
-- [ ] Table selection works
-- [ ] Columns load correctly
-- [ ] SQL preview updates
-- [ ] Query execution works
-- [ ] Results display correctly
-- [ ] No console errors
-
----
-
-## 🎉 You're Ready!
-
-The sidebar is now implemented and ready to use. Test it out and let me know if you encounter any issues or want to add features!
