@@ -1,10 +1,31 @@
 /***********************
  *  SEMANTIC TABLES
  ***********************/
+function injectScript(file) {
+  return new Promise((resolve) => {
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL(file);
+    script.onload = function () {
+      this.remove();
+      resolve();
+    };
+    (document.head || document.documentElement).appendChild(script);
+  });
+}
+
+// 🔥 Ensure correct order (VERY IMPORTANT)
+(async function initAlaSQL() {
+  await injectScript('alasql.min.js');
+  await injectScript('page-bridge.js');
+  console.log("✅ AlaSQL + Bridge loaded in page");
+})();
 function detectSemanticTables() {
   const results = [];
 
   document.querySelectorAll("table").forEach((table, i) => {
+    // Never treat extension UI/result tables as page tables
+    if (table.closest("#sql-query-sidebar") || table.closest("#sql-sidebar-toggle")) return;
+
     // Basic check: skip if table is completely hidden
     const style = getComputedStyle(table);
     if (style.display === "none" || style.visibility === "hidden") return;
@@ -21,13 +42,24 @@ function detectSemanticTables() {
     // Only skip if completely empty
     if (nonEmptyRows.length === 0) return;
 
+    const hasExplicitHeader =
+      !!table.querySelector("thead") ||
+      !!table.querySelector("tr th");
+
+    const headers = hasExplicitHeader
+      ? (nonEmptyRows[0] || [])
+      : [];
+    const dataRows = hasExplicitHeader
+      ? nonEmptyRows.slice(1)
+      : nonEmptyRows;
+
     results.push({
       id: "semantic-" + i,
       type: "semantic",
       root: table,
       confidence: 1.0,
-      headers: nonEmptyRows[0] || [],
-      rows: nonEmptyRows
+      headers,
+      rows: dataRows
     });
   });
 
@@ -41,6 +73,172 @@ function extractSemanticHeaders(table, rows) {
     return [...ths].slice(0, rows[0].length).map(th => cleanText(th.innerText));
   }
   return rows[0];
+}
+
+
+/***********************
+ *  INDEXEDDB STORAGE
+ ***********************/
+const SQL_WEBTABLES_DB_NAME = "sql_webtables_db";
+const SQL_WEBTABLES_DB_VERSION = 1;
+const SQL_WEBTABLES_TABLE_STORE = "tables";
+
+function openTablesDB() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      console.warn("IndexedDB not supported in this environment.");
+      reject(new Error("IndexedDB not supported"));
+      return;
+    }
+
+    const request = indexedDB.open(SQL_WEBTABLES_DB_NAME, SQL_WEBTABLES_DB_VERSION);
+
+    request.onerror = () => {
+      console.warn("Failed to open IndexedDB:", request.error);
+      reject(request.error);
+    };
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(SQL_WEBTABLES_TABLE_STORE)) {
+        const store = db.createObjectStore(SQL_WEBTABLES_TABLE_STORE, { keyPath: "id" });
+        store.createIndex("by_page", "pageUrl", { unique: false });
+        store.createIndex("by_tableId", "tableId", { unique: false });
+      }
+    };
+
+    request.onsuccess = () => {
+      resolve(request.result);
+    };
+  });
+}
+
+async function saveTablesToIndexedDB(tables) {
+  try {
+    const db = await openTablesDB();
+    const tx = db.transaction(SQL_WEBTABLES_TABLE_STORE, "readwrite");
+    const store = tx.objectStore(SQL_WEBTABLES_TABLE_STORE);
+    const pageUrl = window.location.href;
+    const now = Date.now();
+
+    tables.forEach((table) => {
+      const record = {
+        id: `${pageUrl}::${table.id}`,
+        pageUrl,
+        tableId: table.id,
+        type: table.type,
+        headers: table.headers || [],
+        rows: table.rows || [],
+        createdAt: now,
+      };
+      store.put(record);
+    });
+
+    tx.oncomplete = () => {
+      db.close();
+    };
+  } catch (err) {
+    // Failing to persist should never break page behavior
+    console.warn("Error saving tables to IndexedDB:", err);
+  }
+}
+
+/***********************
+ *  TABLE UI HELPERS
+ ***********************/
+function normalizeTableHeaders(table) {
+  const rows = Array.isArray(table.rows) ? table.rows : [];
+  const existingHeaders = Array.isArray(table.headers) ? table.headers : [];
+  const maxCols = rows.reduce(
+    (max, row) => Math.max(max, Array.isArray(row) ? row.length : 0),
+    existingHeaders.length
+  );
+
+  if (!table.headers || !Array.isArray(table.headers)) {
+    table.headers = [];
+  }
+
+  for (let i = 0; i < maxCols; i++) {
+    const current = table.headers[i];
+    if (!current || !String(current).trim()) {
+      table.headers[i] = `Column ${i + 1}`;
+    }
+  }
+
+  return table.headers;
+}
+
+function ensureTableDisplayName(table, index) {
+  if (!table) return;
+  if (!table.displayName || !String(table.displayName).trim()) {
+    table.displayName = `Table ${index + 1}`;
+  }
+}
+
+function attachTableActionIcon(table) {
+  if (!table || !table.root) return;
+  if (table.root.dataset.sqlWebtablesEnhanced === "1") return;
+
+  table.root.dataset.sqlWebtablesEnhanced = "1";
+
+  // Ensure the root is a positioning context, but avoid overriding non-static positions
+  const style = getComputedStyle(table.root);
+  if (style.position === "static") {
+    table.root.style.position = "relative";
+  }
+
+  const overlay = document.createElement("div");
+  overlay.className = "sql-table-overlay";
+  // Position the icon at the top-right, slightly outside the table
+  overlay.style.position = "absolute";
+  overlay.style.top = "-10px";
+  overlay.style.right = "-10px";
+  overlay.style.zIndex = "2147483646";
+  overlay.style.pointerEvents = "auto";
+
+  const button = document.createElement("button");
+  button.className = "sql-table-run-btn";
+  button.type = "button";
+  const displayName = table.displayName || table.id || "Table";
+  button.title = `Run SQL query for ${displayName}`;
+  button.style.padding = "4px 6px";
+  button.style.fontSize = "11px";
+  button.style.borderRadius = "4px";
+  button.style.border = "1px solid #2563eb";
+  button.style.background = "#2563eb";
+  button.style.color = "#ffffff";
+  button.style.cursor = "pointer";
+  button.style.boxShadow = "0 1px 4px rgba(0,0,0,0.2)";
+
+  // Use magnifying glass emoji icon
+  button.textContent = "🔍";
+
+  button.addEventListener("click", () => {
+    try {
+      if (!window.__SQL_SIDEBAR__) {
+        console.warn("SQL sidebar not available yet.");
+        return;
+      }
+
+      // Ensure sidebar is open
+      const sidebarEl = document.getElementById("sql-query-sidebar");
+      const isOpen = sidebarEl && sidebarEl.classList.contains("open");
+      if (!isOpen) {
+        window.__SQL_SIDEBAR__.toggle();
+      }
+
+      // Open the query tab for this specific table
+      if (typeof window.__SQL_SIDEBAR__.openQueryForTableId === "function") {
+        window.__SQL_SIDEBAR__.openQueryForTableId(table.id);
+      }
+    } catch (e) {
+      console.warn("Error handling SQL table action button click:", e);
+    }
+  });
+
+  overlay.appendChild(button);
+
+  table.root.appendChild(overlay);
 }
 
 /***********************
@@ -231,6 +429,15 @@ function scanPage() {
     ...detectRepeatedDivTables(),
     ...detectGridFlexTables()
   ];
+
+  // Normalize headers, attach per-table action icons, and persist snapshot
+  tables.forEach((table, index) => {
+    ensureTableDisplayName(table, index);
+    normalizeTableHeaders(table);
+    attachTableActionIcon(table);
+  });
+
+  saveTablesToIndexedDB(tables);
 
   console.log("Detected tables:", tables);
   window.__WEB_TABLES__ = tables;

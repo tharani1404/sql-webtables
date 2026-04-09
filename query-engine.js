@@ -5,331 +5,444 @@
 (function() {
   'use strict';
 
+  // 🔥 NEW: helper to run SQL via page (AlaSQL)
+  function runSQLViaPage(sqlText, tables) {
+    return new Promise((resolve, reject) => {
+      const requestId = `sql-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const timeoutMs = 8000;
+      let timeoutId = null;
+
+      function cleanup() {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        window.removeEventListener("message", handler);
+      }
+
+      function handler(event) {
+        if (event.source !== window) return;
+        if (!event.data || event.data.type !== "SQL_RESULT") return;
+        if (event.data.requestId !== requestId) return;
+
+        cleanup();
+        resolve(event.data.result);
+      }
+
+      window.addEventListener("message", handler);
+      timeoutId = setTimeout(() => {
+        cleanup();
+        reject(new Error("Timed out waiting for SQL engine response"));
+      }, timeoutMs);
+
+      const safeTables = (Array.isArray(tables) ? tables : []).map((table, index) => ({
+        id: (table && table.id) || `table_${index + 1}`,
+        displayName: table && table.displayName ? table.displayName : undefined,
+        headers: Array.isArray(table && table.headers) ? table.headers : [],
+        rows: Array.isArray(table && table.rows) ? table.rows : []
+      }));
+
+      window.postMessage({
+        type: "RUN_SQL",
+        requestId,
+        sql: sqlText,
+        tables: safeTables
+      }, "*");
+    });
+  }
+
   /**
-   * Execute a query on table data
-   * @param {Object} queryState - Query configuration
-   * @param {Object} queryState.table - Table object with headers and rows
-   * @param {Array<number>} queryState.columns - Selected column indices
-   * @param {Array<Object>} queryState.filters - WHERE conditions
-   * @param {Array<Object>} queryState.sort - ORDER BY conditions
-   * @param {number} queryState.limit - LIMIT value
-   * @param {number} queryState.offset - OFFSET value
-   * @returns {Object} { results: Array, executionTime: number }
+   * Execute SQL (NOW USES ALASQL VIA PAGE)
    */
-  function executeQuery(queryState) {
+  async function executeSQL(sqlText, context) {
     const startTime = performance.now();
 
+    function normalizeQualifiedBracketSyntax(inputSql) {
+      // Accept legacy/pasted form like [table_2.OrderID] by rewriting to [table_2].[OrderID].
+      return String(inputSql || '').replace(/\[([^\[\]]+\.[^\[\]]+)\]/g, (match, qualified) => {
+        const parts = qualified.split('.');
+        if (parts.length < 2) return match;
+        return parts.map((p) => `[${p.replace(/]/g, ']]')}]`).join('.');
+      });
+    }
+
+    const sql = normalizeQualifiedBracketSyntax(
+      String(sqlText || '').trim().replace(/;\s*$/, '')
+    );
+    const tables = (context && context.tables) || [];
+
+    if (!sql) {
+      return { kind: 'query', results: [], executionTime: 0, message: 'Empty SQL.' };
+    }
+
+    try {
+      // 🔥 CALL PAGE (AlaSQL)
+      const res = await runSQLViaPage(sql, tables);
+
+      const endTime = performance.now();
+
+      if (!res || !res.success) {
+        return {
+          kind: 'error',
+          message: res?.error || 'SQL execution failed'
+        };
+      }
+
+      return {
+        kind: 'query',
+        results: res.result || [],
+        executionTime: parseFloat(((endTime - startTime) / 1000).toFixed(3)),
+        message: 'Query executed (AlaSQL)'
+      };
+
+    } catch (err) {
+      return {
+        kind: 'error',
+        message: err.message
+      };
+    }
+  }
+
+  // ====== EVERYTHING BELOW UNCHANGED ======
+
+  function sanitizeIdentifier(name) {
+    const s = String(name || 't').replace(/[^a-zA-Z0-9_]/g, '_');
+    return s || 't';
+  }
+
+  function splitCSV(input) {
+    const out = [];
+    let current = '';
+    let quote = null;
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i];
+      if ((ch === "'" || ch === '"')) {
+        if (!quote) quote = ch;
+        else if (quote === ch) quote = null;
+        current += ch;
+        continue;
+      }
+      if (ch === ',' && !quote) {
+        out.push(current.trim());
+        current = '';
+        continue;
+      }
+      current += ch;
+    }
+    if (current.trim()) out.push(current.trim());
+    return out;
+  }
+
+  function parseValue(raw) {
+    const v = String(raw || '').trim();
+    if (/^'.*'$/.test(v) || /^".*"$/.test(v)) {
+      return v.slice(1, -1);
+    }
+    if (/^null$/i.test(v)) return null;
+    if (/^true$/i.test(v)) return true;
+    if (/^false$/i.test(v)) return false;
+    const n = Number(v);
+    return Number.isNaN(n) ? v : n;
+  }
+
+  function stripTrailingSemicolon(sql) {
+    return String(sql || '').trim().replace(/;\s*$/, '');
+  }
+
+  function parseSqlIdentifier(name) {
+    const n = String(name || '').trim();
+    if ((n.startsWith('"') && n.endsWith('"')) || (n.startsWith("'") && n.endsWith("'"))) {
+      return n.slice(1, -1);
+    }
+    if (n.startsWith('[') && n.endsWith(']')) {
+      return n.slice(1, -1);
+    }
+    return n;
+  }
+
+  function getJoinComparable(value) {
+    if (value === null || value === undefined) return null;
+    return String(value);
+  }
+
+  function joinTables(leftTable, rightTable, leftColIndex, rightColIndex, joinType) {
+    const leftAlias = sanitizeIdentifier(leftTable.displayName || leftTable.id || 'left');
+    const rightAlias = sanitizeIdentifier(rightTable.displayName || rightTable.id || 'right');
+    const lh = leftTable.headers || [];
+    const rh = rightTable.headers || [];
+    const leftHeaders = lh.map((h, i) => `${leftAlias}.${h || 'col' + (i + 1)}`);
+    const rightHeaders = rh.map((h, i) => `${rightAlias}.${h || 'col' + (i + 1)}`);
+    const headers = leftHeaders.concat(rightHeaders);
+    const rows = [];
+    const lrows = leftTable.rows || [];
+    const rrows = rightTable.rows || [];
+
+    const rightIndex = new Map();
+    for (let ri = 0; ri < rrows.length; ri++) {
+      const rrow = rrows[ri];
+      const key = getJoinComparable(rrow[rightColIndex]);
+      if (key === null) continue;
+      if (!rightIndex.has(key)) rightIndex.set(key, []);
+      rightIndex.get(key).push(rrow);
+    }
+
+    const leftOuter = String(joinType || 'INNER').toUpperCase().includes('OUTER');
+    for (let li = 0; li < lrows.length; li++) {
+      const lrow = lrows[li];
+      const key = getJoinComparable(lrow[leftColIndex]);
+      if (key === null) {
+        if (leftOuter) {
+          rows.push(lrow.concat(new Array(rh.length).fill('')));
+        }
+        continue;
+      }
+      const matches = rightIndex.get(key);
+      if (matches && matches.length) {
+        for (let m = 0; m < matches.length; m++) {
+          rows.push(lrow.concat(matches[m]));
+        }
+      } else if (leftOuter) {
+        rows.push(lrow.concat(new Array(rh.length).fill('')));
+      }
+    }
+    return { headers, rows };
+  }
+
+  function getWorkingRowsAndHeaders(queryState) {
+    const left = queryState.table;
+    if (!left || !left.rows) {
+      return { headers: [], rows: [] };
+    }
+
+    const join = queryState.join;
+    if (join && join.enabled && join.rightTable) {
+      const li = join.leftColumnIndex;
+      const ri = join.rightColumnIndex;
+      const lh = left.headers || [];
+      const rh = join.rightTable.headers || [];
+      if (
+        li >= 0 && li < lh.length &&
+        ri >= 0 && ri < rh.length
+      ) {
+        return joinTables(left, join.rightTable, li, ri, join.type || 'INNER');
+      }
+    }
+
+    return {
+      headers: left.headers ? [...left.headers] : [],
+      rows: [...left.rows]
+    };
+  }
+
+  function executeQuery(queryState) {
+    const startTime = performance.now();
     if (!queryState.table || !queryState.table.rows) {
       return { results: [], executionTime: 0 };
     }
 
-    let results = [...queryState.table.rows]; // Copy to avoid mutation
+    const wh = getWorkingRowsAndHeaders(queryState);
+    let headers = wh.headers;
+    let rows = wh.rows;
 
-    // Step 1: Apply WHERE filters
-    if (queryState.filters && queryState.filters.length > 0) {
-      results = filterRows(results, queryState.table.headers, queryState.filters);
+    if (!headers.length && rows.length) {
+      const w = Math.max(...rows.map((r) => r.length));
+      headers = [];
+      for (let i = 0; i < w; i++) headers.push(`Column ${i + 1}`);
     }
 
-    // Step 2: Select columns (projection)
-    if (queryState.columns && queryState.columns.length > 0) {
-      results = selectColumns(results, queryState.table.headers, queryState.columns);
-    } else {
-      // If no columns selected, include all
-      results = selectAllColumns(results, queryState.table.headers);
+    const filters = Array.isArray(queryState.filters) ? queryState.filters : [];
+    if (filters.length > 0) {
+      rows = rows.filter((row) => {
+        let ok = true;
+        for (let i = 0; i < filters.length; i++) {
+          const f = filters[i];
+          if (f.columnIndex === undefined || f.columnIndex < 0 || f.columnIndex >= headers.length) continue;
+          const cell = row[f.columnIndex];
+          const raw = String(f.value ?? "");
+          const asNumber = Number(raw);
+          const cellNum = Number(cell);
+          const bothNumeric = !Number.isNaN(asNumber) && !Number.isNaN(cellNum) && raw.trim() !== "";
+
+          const left = bothNumeric ? cellNum : String(cell ?? "").toLowerCase();
+          const right = bothNumeric ? asNumber : raw.toLowerCase();
+          let pass = true;
+
+          switch (String(f.operator || "=").toUpperCase()) {
+            case "=":
+            case "==":
+              pass = left === right;
+              break;
+            case "!=":
+            case "<>":
+              pass = left !== right;
+              break;
+            case ">":
+              pass = left > right;
+              break;
+            case ">=":
+              pass = left >= right;
+              break;
+            case "<":
+              pass = left < right;
+              break;
+            case "<=":
+              pass = left <= right;
+              break;
+            case "LIKE": {
+              const pattern = String(raw).replace(/%/g, ".*").replace(/_/g, ".");
+              pass = new RegExp(`^${pattern}$`, "i").test(String(cell ?? ""));
+              break;
+            }
+            default:
+              pass = true;
+          }
+
+          if (i === 0) {
+            ok = pass;
+          } else {
+            const logic = String(f.logic || "AND").toUpperCase();
+            ok = logic === "OR" ? (ok || pass) : (ok && pass);
+          }
+        }
+        return ok;
+      });
     }
 
-    // Step 3: Apply ORDER BY (sorting)
-    if (queryState.sort && queryState.sort.length > 0) {
-      results = sortRows(results, queryState.sort);
+    const selected = Array.isArray(queryState.columns) && queryState.columns.length
+      ? queryState.columns
+      : headers.map((_, i) => i);
+
+    let results = rows.map((row) => {
+      const out = {};
+      selected.forEach((idx) => {
+        const key = headers[idx] || `Column ${idx + 1}`;
+        out[key] = row[idx];
+      });
+      return out;
+    });
+
+    const sortList = Array.isArray(queryState.sort) ? queryState.sort : [];
+    if (sortList.length > 0) {
+      results.sort((a, b) => {
+        for (let i = 0; i < sortList.length; i++) {
+          const s = sortList[i];
+          const key = s.column;
+          const dir = String(s.direction || "ASC").toUpperCase() === "DESC" ? -1 : 1;
+          const av = a[key];
+          const bv = b[key];
+
+          const an = Number(av);
+          const bn = Number(bv);
+          const bothNumeric = !Number.isNaN(an) && !Number.isNaN(bn);
+          const cmp = bothNumeric
+            ? (an - bn)
+            : String(av ?? "").localeCompare(String(bv ?? ""), undefined, { sensitivity: "base" });
+          if (cmp !== 0) return cmp * dir;
+        }
+        return 0;
+      });
     }
 
-    // Step 4: Apply OFFSET
-    if (queryState.offset && queryState.offset > 0) {
-      results = results.slice(queryState.offset);
-    }
-
-    // Step 5: Apply LIMIT
-    if (queryState.limit && queryState.limit > 0) {
-      results = results.slice(0, queryState.limit);
-    }
+    const offset = Number(queryState.offset) || 0;
+    const limit = Number(queryState.limit) || 0;
+    if (offset > 0) results = results.slice(offset);
+    if (limit > 0) results = results.slice(0, limit);
 
     const endTime = performance.now();
-    const executionTime = ((endTime - startTime) / 1000).toFixed(3);
-
     return {
       results,
-      executionTime: parseFloat(executionTime)
+      executionTime: parseFloat(((endTime - startTime) / 1000).toFixed(3))
     };
   }
 
-  /**
-   * Filter rows based on WHERE conditions
-   * @param {Array<Array>} rows - Table rows
-   * @param {Array<string>} headers - Column headers
-   * @param {Array<Object>} filters - Filter conditions
-   * @returns {Array<Array>} Filtered rows
-   */
-  function filterRows(rows, headers, filters) {
-    return rows.filter(row => {
-      let result = true;
-      let lastLogic = 'AND';
-
-      for (let i = 0; i < filters.length; i++) {
-        const filter = filters[i];
-        const columnIndex = filter.columnIndex;
-        const operator = filter.operator;
-        const value = filter.value;
-        const logic = filter.logic || 'AND';
-
-        if (columnIndex === undefined || columnIndex < 0 || columnIndex >= headers.length) {
-          continue;
-        }
-
-        const cellValue = row[columnIndex];
-        const filterResult = evaluateCondition(cellValue, operator, value);
-
-        // Apply logic (AND/OR)
-        if (i === 0) {
-          result = filterResult;
-        } else {
-          if (lastLogic === 'AND') {
-            result = result && filterResult;
-          } else {
-            result = result || filterResult;
-          }
-        }
-
-        lastLogic = logic;
-      }
-
-      return result;
-    });
+  function quoteIdentifier(name) {
+    const value = String(name || '');
+    return `[${value.replace(/]/g, ']]')}]`;
   }
 
-  /**
-   * Evaluate a single condition
-   * @param {*} cellValue - Cell value to compare
-   * @param {string} operator - Comparison operator
-   * @param {*} filterValue - Value to compare against
-   * @returns {boolean}
-   */
-  function evaluateCondition(cellValue, operator, filterValue) {
-    // Convert to comparable types
-    const cellStr = String(cellValue || '').toLowerCase().trim();
-    const filterStr = String(filterValue || '').toLowerCase().trim();
-
-    // Try numeric comparison
-    const cellNum = parseFloat(cellValue);
-    const filterNum = parseFloat(filterValue);
-    const isNumeric = !isNaN(cellNum) && !isNaN(filterNum) && cellStr !== '' && filterStr !== '';
-
-    switch (operator) {
-      case '=':
-      case '==':
-        if (isNumeric) return cellNum === filterNum;
-        return cellStr === filterStr;
-      
-      case '!=':
-      case '<>':
-        if (isNumeric) return cellNum !== filterNum;
-        return cellStr !== filterStr;
-      
-      case '>':
-        if (isNumeric) return cellNum > filterNum;
-        return cellStr > filterStr;
-      
-      case '>=':
-        if (isNumeric) return cellNum >= filterNum;
-        return cellStr >= filterStr;
-      
-      case '<':
-        if (isNumeric) return cellNum < filterNum;
-        return cellStr < filterStr;
-      
-      case '<=':
-        if (isNumeric) return cellNum <= filterNum;
-        return cellStr <= filterStr;
-      
-      case 'LIKE':
-        // Simple LIKE: convert SQL pattern to regex
-        const pattern = filterStr
-          .replace(/%/g, '.*')
-          .replace(/_/g, '.');
-        const regex = new RegExp(`^${pattern}$`, 'i');
-        return regex.test(cellStr);
-      
-      case 'NOT LIKE':
-        const notPattern = filterStr
-          .replace(/%/g, '.*')
-          .replace(/_/g, '.');
-        const notRegex = new RegExp(`^${notPattern}$`, 'i');
-        return !notRegex.test(cellStr);
-      
-      case 'IN':
-        // IN: value is array or comma-separated string
-        const inValues = Array.isArray(filterValue) 
-          ? filterValue 
-          : String(filterValue).split(',').map(v => v.trim().toLowerCase());
-        return inValues.includes(cellStr);
-      
-      case 'NOT IN':
-        const notInValues = Array.isArray(filterValue)
-          ? filterValue
-          : String(filterValue).split(',').map(v => v.trim().toLowerCase());
-        return !notInValues.includes(cellStr);
-      
-      case 'IS NULL':
-        return cellValue === null || cellValue === undefined || cellStr === '';
-      
-      case 'IS NOT NULL':
-        return cellValue !== null && cellValue !== undefined && cellStr !== '';
-      
-      default:
-        return true; // Unknown operator, don't filter
+  function quoteQualifiedIdentifier(name) {
+    const value = String(name || '');
+    if (value.includes('.')) {
+      return value.split('.').map((part) => quoteIdentifier(part)).join('.');
     }
+    return quoteIdentifier(value);
   }
 
-  /**
-   * Select specific columns (projection)
-   * @param {Array<Array>} rows - Table rows
-   * @param {Array<string>} headers - Column headers
-   * @param {Array<number>} columnIndices - Indices of columns to select
-   * @returns {Array<Object>} Objects with selected columns
-   */
-  function selectColumns(rows, headers, columnIndices) {
-    return rows.map(row => {
-      const result = {};
-      columnIndices.forEach(index => {
-        if (index >= 0 && index < headers.length) {
-          const colName = headers[index] || `Column ${index + 1}`;
-          result[colName] = row[index] || '';
-        }
-      });
-      return result;
-    });
+  function toSqlLiteral(value) {
+    if (value === null || value === undefined) return 'NULL';
+    const raw = String(value).trim();
+    if (!raw) return "''";
+    if (/^-?\d+(\.\d+)?$/.test(raw)) return raw;
+    if (/^(true|false)$/i.test(raw)) return raw.toLowerCase();
+    return `'${raw.replace(/'/g, "''")}'`;
   }
 
-  /**
-   * Select all columns
-   * @param {Array<Array>} rows - Table rows
-   * @param {Array<string>} headers - Column headers
-   * @returns {Array<Object>} Objects with all columns
-   */
-  function selectAllColumns(rows, headers) {
-    return rows.map(row => {
-      const result = {};
-      headers.forEach((header, index) => {
-        result[header || `Column ${index + 1}`] = row[index] || '';
-      });
-      return result;
-    });
+  function resolveTableAlias(table, tables) {
+    const list = Array.isArray(tables) ? tables : [];
+    const idx = list.findIndex((t) => t && table && t.id === table.id);
+    return idx >= 0 ? `table_${idx + 1}` : 'table_1';
   }
 
-  /**
-   * Sort rows based on ORDER BY conditions
-   * @param {Array<Object>} rows - Rows as objects
-   * @param {Array<Object>} sortConditions - Sort conditions
-   * @returns {Array<Object>} Sorted rows
-   */
-  function sortRows(rows, sortConditions) {
-    if (!sortConditions || sortConditions.length === 0) {
-      return rows;
+  function generateSQL(queryState, context) {
+    if (!queryState || !queryState.table) {
+      return "SELECT ...\nFROM ...";
     }
+    const tables = (context && context.tables) || [];
+    const leftAlias = resolveTableAlias(queryState.table, tables);
+    const leftHeaders = Array.isArray(queryState.table.headers) ? queryState.table.headers : [];
 
-    return [...rows].sort((a, b) => {
-      for (const condition of sortConditions) {
-        const column = condition.column;
-        const direction = condition.direction || 'ASC';
+    const join = queryState.join || {};
+    const hasJoin = !!(join.enabled && join.rightTable);
+    const rightAlias = hasJoin ? resolveTableAlias(join.rightTable, tables) : '';
+    const rightHeaders = hasJoin && Array.isArray(join.rightTable.headers) ? join.rightTable.headers : [];
 
-        if (!(column in a) || !(column in b)) {
-          continue;
-        }
+    const workHeaders = hasJoin
+      ? leftHeaders
+          .map((h, i) => `${leftAlias}.${h || 'col' + (i + 1)}`)
+          .concat(rightHeaders.map((h, i) => `${rightAlias}.${h || 'col' + (i + 1)}`))
+      : leftHeaders;
 
-        const aVal = a[column];
-        const bVal = b[column];
-
-        // Try numeric comparison
-        const aNum = parseFloat(aVal);
-        const bNum = parseFloat(bVal);
-        const isNumeric = !isNaN(aNum) && !isNaN(bNum) && 
-                         String(aVal).trim() !== '' && String(bVal).trim() !== '';
-
-        let comparison = 0;
-
-        if (isNumeric) {
-          comparison = aNum - bNum;
-        } else {
-          const aStr = String(aVal || '').toLowerCase();
-          const bStr = String(bVal || '').toLowerCase();
-          comparison = aStr.localeCompare(bStr);
-        }
-
-        if (comparison !== 0) {
-          return direction === 'DESC' ? -comparison : comparison;
-        }
-      }
-      return 0;
-    });
-  }
-
-  /**
-   * Generate SQL string from query state (for preview)
-   * @param {Object} queryState - Query configuration
-   * @returns {string} SQL query string
-   */
-  function generateSQL(queryState) {
-    if (!queryState.table) {
-      return 'SELECT ...\nFROM ...';
-    }
-
-    let sql = 'SELECT ';
-
-    // Columns
-    if (queryState.columns && queryState.columns.length > 0) {
-      const columnNames = queryState.columns.map(index => {
-        return queryState.table.headers[index] || `Column ${index + 1}`;
+    let sql = "SELECT ";
+    if (Array.isArray(queryState.columns) && queryState.columns.length > 0) {
+      const cols = queryState.columns.map((index) => {
+        const col = workHeaders[index] || `Column ${index + 1}`;
+        return quoteQualifiedIdentifier(col);
       });
-      sql += columnNames.join(', ');
+      sql += cols.join(", ");
     } else {
-      sql += '*';
+      sql += "*";
     }
 
-    // FROM (use friendly name if available)
-    const tableName = queryState.table.displayName || queryState.table.id;
-    sql += `\nFROM ${tableName}`;
+    sql += `\nFROM ${quoteIdentifier(leftAlias)}`;
 
-    // WHERE
-    if (queryState.filters && queryState.filters.length > 0) {
-      sql += '\nWHERE ';
+    if (hasJoin) {
+      const joinType = (join.type || 'INNER').toUpperCase();
+      const li = Number.isFinite(join.leftColumnIndex) ? join.leftColumnIndex : 0;
+      const ri = Number.isFinite(join.rightColumnIndex) ? join.rightColumnIndex : 0;
+      const leftCol = `${leftAlias}.${leftHeaders[li] || `col${li + 1}`}`;
+      const rightCol = `${rightAlias}.${rightHeaders[ri] || `col${ri + 1}`}`;
+      sql += `\n${joinType} JOIN ${quoteIdentifier(rightAlias)} ON ${quoteQualifiedIdentifier(leftCol)} = ${quoteQualifiedIdentifier(rightCol)}`;
+    }
+
+    if (Array.isArray(queryState.filters) && queryState.filters.length > 0) {
+      sql += "\nWHERE ";
       const conditions = queryState.filters.map((filter, index) => {
-        const colName = queryState.table.headers[filter.columnIndex] || `Column ${filter.columnIndex + 1}`;
-        const value = typeof filter.value === 'string' ? `'${filter.value}'` : filter.value;
-        let condition = `${colName} ${filter.operator} ${value}`;
-        
-        if (index > 0) {
-          condition = `${filter.logic || 'AND'} ${condition}`;
-        }
-        
-        return condition;
+        const colName = workHeaders[filter.columnIndex] || `Column ${filter.columnIndex + 1}`;
+        const expr = `${quoteQualifiedIdentifier(colName)} ${filter.operator} ${toSqlLiteral(filter.value)}`;
+        if (index === 0) return expr;
+        return `${filter.logic || "AND"} ${expr}`;
       });
-      sql += conditions.join(' ');
+      sql += conditions.join(" ");
     }
 
-    // ORDER BY
-    if (queryState.sort && queryState.sort.length > 0) {
-      sql += '\nORDER BY ';
-      const sorts = queryState.sort.map(s => {
-        return `${s.column} ${s.direction || 'ASC'}`;
-      });
-      sql += sorts.join(', ');
+    if (Array.isArray(queryState.sort) && queryState.sort.length > 0) {
+      const sorts = queryState.sort.map((s) => `${quoteQualifiedIdentifier(s.column)} ${s.direction || "ASC"}`);
+      sql += `\nORDER BY ${sorts.join(", ")}`;
     }
 
-    // LIMIT
     if (queryState.limit && queryState.limit > 0) {
       sql += `\nLIMIT ${queryState.limit}`;
     }
-
-    // OFFSET
     if (queryState.offset && queryState.offset > 0) {
       sql += `\nOFFSET ${queryState.offset}`;
     }
@@ -337,13 +450,12 @@
     return sql;
   }
 
-  // Expose API
   window.__QUERY_ENGINE__ = {
     executeQuery,
+    executeSQL,
     generateSQL,
-    filterRows,
-    selectColumns,
-    sortRows
+    getWorkingRowsAndHeaders,
+    joinTables
   };
 
 })();

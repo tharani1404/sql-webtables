@@ -13,12 +13,27 @@
   let sidebarOpen = false;
   let selectedTable = null;
   let highlightedElement = null;
+  let lastWorkHeaderSignature = '';
+  let lastResults = [];
   let queryState = {
     table: null,
     columns: [],
     filters: [],
     sort: [],
-    limit: 100
+    limit: 100,
+    offset: 0,
+    join: {
+      enabled: false,
+      rightTable: null,
+      leftColumnIndex: 0,
+      rightColumnIndex: 0,
+      type: 'INNER'
+    },
+    groupBy: {
+      enabled: false,
+      groupIndices: [],
+      aggregates: []
+    }
   };
 
   /***********************
@@ -31,7 +46,6 @@
     sidebar.innerHTML = `
       <div class="sidebar-header">
         <h2>🔍 SQL Query Builder</h2>
-        <button class="sidebar-close-btn" onclick="window.__SQL_SIDEBAR__.toggle()">×</button>
       </div>
       <div class="sidebar-tabs">
         <button class="sidebar-tab active" data-tab="tables">📊 Tables</button>
@@ -58,11 +72,89 @@
             <div class="section-title">Select Columns</div>
             <div class="columns-grid" id="columnsGrid"></div>
           </div>
+          <div class="query-section" id="joinSection">
+            <div class="section-title">Join (optional)</div>
+            <label class="inline-check">
+              <input type="checkbox" id="joinEnabled"> Join with another table (INNER JOIN)
+            </label>
+            <p class="hint-text" id="joinHint" style="display: none;">
+              Need at least 2 detected tables on this page to use JOIN.
+            </p>
+            <div id="joinControls" class="join-controls" style="display: none;">
+              <label class="mini-label">Join type</label>
+              <select class="dropdown" id="joinTypeSelect">
+                <option value="INNER">INNER JOIN</option>
+                <option value="LEFT OUTER">LEFT OUTER JOIN</option>
+              </select>
+              <label class="mini-label">Right table</label>
+              <select class="dropdown" id="joinRightSelect">
+                <option value="">— Select table —</option>
+              </select>
+              <label class="mini-label">Left column (from selected table)</label>
+              <select class="dropdown" id="joinLeftCol"></select>
+              <label class="mini-label">Right column (from joined table)</label>
+              <select class="dropdown" id="joinRightCol"></select>
+            </div>
+          </div>
+          <div class="query-section" id="whereSection">
+            <div class="section-title">Filter (WHERE, optional)</div>
+            <label class="mini-label">Column</label>
+            <select class="dropdown" id="whereColumn">
+              <option value="">-- No filter --</option>
+            </select>
+            <label class="mini-label">Operator</label>
+            <select class="dropdown" id="whereOperator">
+              <option value="=">=</option>
+              <option value="!=">!=</option>
+              <option value=">">&gt;</option>
+              <option value=">=">&gt;=</option>
+              <option value="<">&lt;</option>
+              <option value="<=">&lt;=</option>
+              <option value="LIKE">LIKE</option>
+              <option value="NOT LIKE">NOT LIKE</option>
+            </select>
+            <label class="mini-label">Value</label>
+            <input type="text" id="whereValue" class="dropdown" style="margin-bottom: 0;" placeholder="e.g. 100 or 'Alice'">
+          </div>
+          <div class="query-section" id="orderBySection">
+            <div class="section-title">Order by (optional)</div>
+            <label class="mini-label">Column</label>
+            <select class="dropdown" id="orderColumn">
+              <option value="">-- No ordering --</option>
+            </select>
+            <label class="mini-label">Direction</label>
+            <select class="dropdown" id="orderDirection">
+              <option value="ASC">ASC</option>
+              <option value="DESC">DESC</option>
+            </select>
+          </div>
+          <div class="query-section" id="groupBySection">
+            <div class="section-title">Group by (optional)</div>
+            <label class="inline-check">
+              <input type="checkbox" id="groupByEnabled"> Enable GROUP BY &amp; aggregates
+            </label>
+            <p class="hint-text" id="groupByHint" style="display: none;">
+              Check &quot;Group&quot; for dimensions. For other columns, pick SUM / AVG / COUNT / MIN / MAX, or leave &quot;—&quot; to omit.
+            </p>
+            <div id="groupByGrid" class="groupby-grid" style="display: none;"></div>
+          </div>
           <div class="query-section">
             <div class="section-title">Generated SQL</div>
             <div class="sql-preview" id="sqlPreview">SELECT ...\nFROM ...</div>
           </div>
           <button class="btn-primary" id="runBtn" disabled>▶ Run Query</button>
+          <div class="query-section">
+            <div class="section-title">Run SQL Directly</div>
+            <textarea id="sqlEditor" class="sql-editor" placeholder="SELECT * FROM Table 1;"></textarea>
+            <button class="btn-primary btn-secondary" id="runSqlBtn">▶ Run SQL</button>
+            <div id="sqlMessage" class="hint-text" style="margin-top: 8px;"></div>
+          </div>
+          <div class="query-section">
+            <div class="section-title">Table Export</div>
+            <div class="action-row">
+              <button class="btn-primary btn-secondary" id="saveTableCsvBtn">Save Table CSV</button>
+            </div>
+          </div>
         </div>
         <div class="tab-content" id="resultsTab">
           <div class="empty-state" id="emptyResults">
@@ -74,6 +166,11 @@
               <div><strong>Query Results</strong></div>
               <div>Rows: <span id="rowCount">0</span> | Time: <span id="execTime">0.00s</span></div>
             </div>
+            <div class="action-row">
+              <button class="btn-primary btn-secondary" id="copyResultsBtn">Copy Results</button>
+              <button class="btn-primary btn-secondary" id="saveResultsCsvBtn">Save Results CSV</button>
+            </div>
+            <div id="resultsMessage" class="hint-text" style="margin-top: 6px;"></div>
             <div class="results-container">
               <table class="results-table" id="resultsTable"></table>
             </div>
@@ -117,6 +214,396 @@
     
     // Run query button
     document.getElementById('runBtn').addEventListener('click', runQuery);
+
+    const joinEnabled = document.getElementById('joinEnabled');
+    const joinRightSelect = document.getElementById('joinRightSelect');
+    joinEnabled.addEventListener('change', () => {
+      document.getElementById('joinControls').style.display = joinEnabled.checked ? 'block' : 'none';
+      refreshJoinAndGroupUi();
+    });
+    joinRightSelect.addEventListener('change', () => {
+      populateJoinColumnSelects();
+      refreshJoinAndGroupUi();
+    });
+    document.getElementById('joinLeftCol').addEventListener('change', refreshJoinAndGroupUi);
+    document.getElementById('joinRightCol').addEventListener('change', refreshJoinAndGroupUi);
+    document.getElementById('joinTypeSelect').addEventListener('change', refreshJoinAndGroupUi);
+
+    const groupByEnabled = document.getElementById('groupByEnabled');
+    groupByEnabled.addEventListener('change', () => {
+      const on = groupByEnabled.checked;
+      document.getElementById('groupByGrid').style.display = on ? 'block' : 'none';
+      document.getElementById('groupByHint').style.display = on ? 'block' : 'none';
+      document.getElementById('columnsGrid').style.display = on ? 'none' : 'grid';
+      refreshJoinAndGroupUi();
+    });
+
+    const whereColumn = document.getElementById('whereColumn');
+    const whereOperator = document.getElementById('whereOperator');
+    const whereValue = document.getElementById('whereValue');
+    whereColumn.addEventListener('change', updateSQL);
+    whereOperator.addEventListener('change', updateSQL);
+    whereValue.addEventListener('input', updateSQL);
+
+    const orderColumn = document.getElementById('orderColumn');
+    const orderDirection = document.getElementById('orderDirection');
+    orderColumn.addEventListener('change', updateSQL);
+    orderDirection.addEventListener('change', updateSQL);
+
+    document.getElementById('runSqlBtn').addEventListener('click', runDirectSQL);
+    document.getElementById('copyResultsBtn').addEventListener('click', copyResultsToClipboard);
+    document.getElementById('saveResultsCsvBtn').addEventListener('click', saveResultsCsv);
+    document.getElementById('saveTableCsvBtn').addEventListener('click', saveCurrentTableCsv);
+  }
+
+  function refreshJoinAndGroupUi() {
+    const headers = getWorkHeaders();
+    const signature = headers.join('\x1f');
+    if (signature !== lastWorkHeaderSignature) {
+      buildSelectColumnsGrid(headers, true);
+      buildGroupByGrid(headers, true);
+      lastWorkHeaderSignature = signature;
+    }
+    updateSQL();
+  }
+
+  function populateJoinRightSelect() {
+    const sel = document.getElementById('joinRightSelect');
+    const joinEnabled = document.getElementById('joinEnabled');
+    const joinHint = document.getElementById('joinHint');
+    const tables = window.__WEB_TABLES__ || [];
+    const currentId = queryState.table ? queryState.table.id : '';
+    const prev = sel.value;
+    let eligibleCount = 0;
+    sel.innerHTML = '<option value="">— Select table —</option>';
+    tables.forEach((t) => {
+      if (t.id === currentId) return;
+      eligibleCount += 1;
+      const opt = document.createElement('option');
+      opt.value = t.id;
+      opt.textContent = t.displayName || t.id;
+      sel.appendChild(opt);
+    });
+    if (prev && sel.querySelector(`option[value="${prev}"]`)) {
+      sel.value = prev;
+    }
+    const canJoin = eligibleCount > 0;
+    joinEnabled.disabled = !canJoin;
+    if (!canJoin) {
+      joinEnabled.checked = false;
+      document.getElementById('joinControls').style.display = 'none';
+    }
+    joinHint.style.display = canJoin ? 'none' : 'block';
+  }
+
+  function populateJoinColumnSelects() {
+    const leftSel = document.getElementById('joinLeftCol');
+    const rightSel = document.getElementById('joinRightSelect');
+    const joinRightCol = document.getElementById('joinRightCol');
+    const tables = window.__WEB_TABLES__ || [];
+    const left = queryState.table;
+    const right = tables.find((t) => t.id === rightSel.value);
+    const prevLeft = leftSel.value;
+    const prevRight = joinRightCol.value;
+
+    leftSel.innerHTML = '';
+    const lh = (left && left.headers) ? left.headers : [];
+    lh.forEach((h, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = h || `Column ${i + 1}`;
+      leftSel.appendChild(opt);
+    });
+    if (prevLeft && leftSel.querySelector(`option[value="${prevLeft}"]`)) {
+      leftSel.value = prevLeft;
+    }
+
+    joinRightCol.innerHTML = '';
+    const rh = (right && right.headers) ? right.headers : [];
+    rh.forEach((h, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(i);
+      opt.textContent = h || `Column ${i + 1}`;
+      joinRightCol.appendChild(opt);
+    });
+    if (prevRight && joinRightCol.querySelector(`option[value="${prevRight}"]`)) {
+      joinRightCol.value = prevRight;
+    }
+  }
+
+  function getJoinConfigFromUi() {
+    const joinEnabled = document.getElementById('joinEnabled').checked;
+    const rightId = document.getElementById('joinRightSelect').value;
+    const tables = window.__WEB_TABLES__ || [];
+    const rightTable = joinEnabled && rightId ? tables.find((t) => t.id === rightId) : null;
+    const leftCol = parseInt(document.getElementById('joinLeftCol').value, 10);
+    const rightCol = parseInt(document.getElementById('joinRightCol').value, 10);
+    return {
+      enabled: joinEnabled && !!rightTable,
+      rightTable,
+      leftColumnIndex: Number.isFinite(leftCol) ? leftCol : 0,
+      rightColumnIndex: Number.isFinite(rightCol) ? rightCol : 0,
+      type: document.getElementById('joinTypeSelect').value || 'INNER'
+    };
+  }
+
+  function getWorkHeaders() {
+    if (!queryState.table || !window.__QUERY_ENGINE__) {
+      return queryState.table && queryState.table.headers ? [...queryState.table.headers] : [];
+    }
+    const join = getJoinConfigFromUi();
+    const wh = window.__QUERY_ENGINE__.getWorkingRowsAndHeaders({
+      table: queryState.table,
+      join
+    });
+    return wh.headers && wh.headers.length ? wh.headers : (queryState.table.headers || []);
+  }
+
+  function getCurrentSelectedColumnIndices() {
+    const checks = document.querySelectorAll('#columnsGrid input[type="checkbox"]:checked');
+    return Array.from(checks).map((cb) => parseInt(cb.dataset.column, 10)).filter((i) => Number.isFinite(i));
+  }
+
+  function getWhereOrderState() {
+    const whereColumn = document.getElementById('whereColumn');
+    const whereOperator = document.getElementById('whereOperator');
+    const whereValue = document.getElementById('whereValue');
+    const orderColumn = document.getElementById('orderColumn');
+    const orderDirection = document.getElementById('orderDirection');
+    return {
+      whereColumn: whereColumn ? whereColumn.value : '',
+      whereOperator: whereOperator ? whereOperator.value : '=',
+      whereValue: whereValue ? whereValue.value : '',
+      orderColumn: orderColumn ? orderColumn.value : '',
+      orderDirection: orderDirection ? orderDirection.value : 'ASC'
+    };
+  }
+
+  function applyWhereOrderState(headersLength, state) {
+    const whereColumn = document.getElementById('whereColumn');
+    const whereOperator = document.getElementById('whereOperator');
+    const whereValue = document.getElementById('whereValue');
+    const orderColumn = document.getElementById('orderColumn');
+    const orderDirection = document.getElementById('orderDirection');
+
+    if (!state) return;
+    if (whereColumn && state.whereColumn && Number(state.whereColumn) < headersLength) {
+      whereColumn.value = state.whereColumn;
+    }
+    if (whereOperator && state.whereOperator) {
+      whereOperator.value = state.whereOperator;
+    }
+    if (whereValue && typeof state.whereValue === 'string') {
+      whereValue.value = state.whereValue;
+    }
+    if (orderColumn && state.orderColumn && Number(state.orderColumn) < headersLength) {
+      orderColumn.value = state.orderColumn;
+    }
+    if (orderDirection && state.orderDirection) {
+      orderDirection.value = state.orderDirection;
+    }
+  }
+
+  function buildSelectColumnsGrid(headers, preserveSelection) {
+    const columnsGrid = document.getElementById('columnsGrid');
+    if (!columnsGrid) return;
+    const prevSelected = preserveSelection ? getCurrentSelectedColumnIndices() : [];
+
+    columnsGrid.innerHTML = headers.map((col, index) => `
+      <label class="column-checkbox">
+        <input type="checkbox" ${!preserveSelection || prevSelected.includes(index) ? 'checked' : ''} data-column="${index}"> ${col || `Column ${index + 1}`}
+      </label>
+    `).join('');
+
+    columnsGrid.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', updateSQL);
+    });
+
+    const whereColumn = document.getElementById('whereColumn');
+    const orderColumn = document.getElementById('orderColumn');
+    if (whereColumn && orderColumn) {
+      const prevWhereOrder = getWhereOrderState();
+      whereColumn.innerHTML = '<option value="">-- No filter --</option>';
+      orderColumn.innerHTML = '<option value="">-- No ordering --</option>';
+      headers.forEach((col, index) => {
+        const text = col || `Column ${index + 1}`;
+        const optWhere = document.createElement('option');
+        optWhere.value = String(index);
+        optWhere.textContent = text;
+        whereColumn.appendChild(optWhere);
+
+        const optOrder = document.createElement('option');
+        optOrder.value = String(index);
+        optOrder.textContent = text;
+        orderColumn.appendChild(optOrder);
+      });
+      applyWhereOrderState(headers.length, prevWhereOrder);
+    }
+  }
+
+  function getCurrentGroupSelections() {
+    const grid = document.getElementById('groupByGrid');
+    const selections = {
+      grouped: {},
+      aggregates: {}
+    };
+    if (!grid) return selections;
+
+    grid.querySelectorAll('.groupby-chk').forEach((chk) => {
+      selections.grouped[chk.dataset.col] = chk.checked;
+    });
+    grid.querySelectorAll('.groupby-agg').forEach((sel) => {
+      selections.aggregates[sel.dataset.col] = sel.value;
+    });
+    return selections;
+  }
+
+  function applyGroupSelections(grid, selections) {
+    if (!grid || !selections) return;
+    grid.querySelectorAll('.groupby-chk').forEach((chk) => {
+      if (selections.grouped[chk.dataset.col] === true) {
+        chk.checked = true;
+      }
+    });
+    grid.querySelectorAll('.groupby-agg').forEach((sel) => {
+      const chosen = selections.aggregates[sel.dataset.col];
+      if (chosen) {
+        sel.value = chosen;
+      }
+    });
+    grid.querySelectorAll('.groupby-row').forEach((row) => {
+      const chk = row.querySelector('.groupby-chk');
+      const agg = row.querySelector('.groupby-agg');
+      if (chk && agg) {
+        agg.disabled = chk.checked;
+        if (chk.checked) agg.value = '';
+      }
+    });
+  }
+
+  function buildGroupByGrid(headersOverride, preserveSelection) {
+    const grid = document.getElementById('groupByGrid');
+    if (!grid || !queryState.table) return;
+
+    const prev = preserveSelection ? getCurrentGroupSelections() : null;
+    const headers = headersOverride || getWorkHeaders();
+    if (!headers.length) {
+      grid.innerHTML = '';
+      return;
+    }
+
+    grid.innerHTML = headers.map((h, i) => `
+      <div class="groupby-row" data-col="${i}">
+        <span class="groupby-name" title="${escapeHtml(h)}">${escapeHtml(h)}</span>
+        <label class="groupby-g">
+          <input type="checkbox" class="groupby-chk" data-col="${i}"> Group
+        </label>
+        <select class="groupby-agg dropdown" data-col="${i}">
+          <option value="">—</option>
+          <option value="SUM">SUM</option>
+          <option value="AVG">AVG</option>
+          <option value="MIN">MIN</option>
+          <option value="MAX">MAX</option>
+          <option value="COUNT">COUNT</option>
+        </select>
+      </div>
+    `).join('');
+
+    grid.querySelectorAll('.groupby-chk').forEach((chk) => {
+      chk.addEventListener('change', () => {
+        const col = parseInt(chk.dataset.col, 10);
+        const row = grid.querySelector(`.groupby-row[data-col="${col}"]`);
+        const agg = row && row.querySelector('.groupby-agg');
+        if (agg) {
+          agg.disabled = chk.checked;
+          if (chk.checked) agg.value = '';
+        }
+        updateSQL();
+      });
+    });
+    grid.querySelectorAll('.groupby-agg').forEach((sel) => {
+      sel.addEventListener('change', updateSQL);
+    });
+
+    if (prev) {
+      applyGroupSelections(grid, prev);
+    }
+  }
+
+  function collectQueryState() {
+    if (!queryState.table) return null;
+
+    const join = getJoinConfigFromUi();
+    const groupByEnabled = document.getElementById('groupByEnabled').checked;
+    const grid = document.getElementById('groupByGrid');
+    const headers = getWorkHeaders();
+    const groupIndices = [];
+    const aggregates = [];
+
+    if (groupByEnabled && grid) {
+      grid.querySelectorAll('.groupby-chk').forEach((chk) => {
+        if (chk.checked) {
+          groupIndices.push(parseInt(chk.dataset.col, 10));
+        }
+      });
+      grid.querySelectorAll('.groupby-agg').forEach((sel) => {
+        const col = parseInt(sel.dataset.col, 10);
+        if (groupIndices.indexOf(col) >= 0) return;
+        const fn = sel.value;
+        if (fn) {
+          aggregates.push({ columnIndex: col, fn });
+        }
+      });
+    }
+
+    const checkboxes = document.querySelectorAll('#columnsGrid input[type="checkbox"]:checked');
+    const selectedIndices = Array.from(checkboxes).map((cb) => parseInt(cb.dataset.column, 10));
+
+    const filters = [];
+    const whereColumn = document.getElementById('whereColumn');
+    const whereOperator = document.getElementById('whereOperator');
+    const whereValue = document.getElementById('whereValue');
+    if (whereColumn && whereOperator && whereValue) {
+      const colIdx = parseInt(whereColumn.value, 10);
+      const val = whereValue.value;
+      if (Number.isFinite(colIdx) && colIdx >= 0 && colIdx < headers.length && val && val.trim() !== '') {
+        filters.push({
+          columnIndex: colIdx,
+          operator: whereOperator.value || '=',
+          value: val,
+          logic: 'AND'
+        });
+      }
+    }
+
+    const sort = [];
+    const orderColumn = document.getElementById('orderColumn');
+    const orderDirection = document.getElementById('orderDirection');
+    if (orderColumn && orderDirection) {
+      const colIdx = parseInt(orderColumn.value, 10);
+      if (Number.isFinite(colIdx) && colIdx >= 0 && colIdx < headers.length) {
+        const colName = headers[colIdx] || `Column ${colIdx + 1}`;
+        sort.push({
+          column: colName,
+          direction: (orderDirection.value || 'ASC').toUpperCase()
+        });
+      }
+    }
+
+    return {
+      table: queryState.table,
+      columns: selectedIndices,
+      filters,
+      sort,
+      limit: queryState.limit,
+      offset: queryState.offset || 0,
+      join,
+      groupBy: {
+        enabled: groupByEnabled && (groupIndices.length > 0 || aggregates.length > 0),
+        groupIndices,
+        aggregates
+      }
+    };
   }
 
   /***********************
@@ -138,9 +625,15 @@
     const tablesList = document.getElementById('tablesList');
     const tableSelect = document.getElementById('tableSelect');
 
+    // Remember what was selected before reload
+    const previouslySelectedId =
+      (selectedTable && selectedTable.id) ||
+      (tableSelect && tableSelect.value) ||
+      '';
+
     // Clear existing
     tablesList.innerHTML = '';
-    tableSelect.innerHTML = '<option value="">-- Select Table --</option>';
+    tableSelect.innerHTML = '<option value=\"\">-- Select Table --</option>';
 
     if (tables.length === 0) {
       tablesList.innerHTML = `
@@ -168,6 +661,12 @@
       option.textContent = `${table.displayName} (${table.type})`;
       tableSelect.appendChild(option);
     });
+
+    // Restore selection in dropdown if possible
+    if (previouslySelectedId) {
+      const optionExists = !!tableSelect.querySelector(`option[value=\"${previouslySelectedId}\"]`);
+      tableSelect.value = optionExists ? previouslySelectedId : '';
+    }
   }
 
   /***********************
@@ -280,31 +779,47 @@
   }
 
   /***********************
+   *  OPEN QUERY TAB FOR TABLE ID
+   ***********************/
+  function openQueryForTableId(tableId) {
+    if (!tableId) return;
+    const tables = window.__WEB_TABLES__ || [];
+    const table = tables.find(t => t.id === tableId);
+    if (!table) return;
+    selectTable(table);
+    // Ensure the dropdown reflects the selected table
+    const tableSelect = document.getElementById('tableSelect');
+    if (tableSelect) {
+      tableSelect.value = tableId;
+    }
+    switchTab('query');
+  }
+
+  /***********************
    *  LOAD TABLE COLUMNS
    ***********************/
   function loadTableColumns(table) {
-    const columnsGrid = document.getElementById('columnsGrid');
     const headers = table.headers || [];
     
     queryState.table = table;
     queryState.columns = headers.map((_, i) => i); // Default: all columns
+    lastWorkHeaderSignature = '';
 
     if (headers.length === 0) {
-      columnsGrid.innerHTML = '<div class="empty-text">No columns detected</div>';
+      document.getElementById('columnsGrid').innerHTML = '<div class="empty-text">No columns detected</div>';
       return;
     }
 
-    columnsGrid.innerHTML = headers.map((col, index) => `
-      <label class="column-checkbox">
-        <input type="checkbox" checked data-column="${index}"> ${col || `Column ${index + 1}`}
-      </label>
-    `).join('');
+    populateJoinRightSelect();
+    populateJoinColumnSelects();
+    const groupOn = document.getElementById('groupByEnabled').checked;
+    document.getElementById('columnsGrid').style.display = groupOn ? 'none' : 'grid';
+    document.getElementById('groupByGrid').style.display = groupOn ? 'block' : 'none';
+    document.getElementById('groupByHint').style.display = groupOn ? 'block' : 'none';
 
-    // Add change listeners
-    columnsGrid.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-      cb.addEventListener('change', updateSQL);
-    });
-
+    buildSelectColumnsGrid(getWorkHeaders(), false);
+    buildGroupByGrid(getWorkHeaders(), false);
+    lastWorkHeaderSignature = getWorkHeaders().join('\x1f');
     updateSQL();
     document.getElementById('runBtn').disabled = false;
   }
@@ -315,26 +830,30 @@
   function updateSQL() {
     if (!queryState.table) return;
 
-    const checkboxes = document.querySelectorAll('#columnsGrid input[type="checkbox"]:checked');
-    const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.dataset.column));
-    
-    queryState.columns = selectedIndices;
+    const qs = collectQueryState();
+    if (!qs) return;
+    queryState.columns = qs.columns;
 
     // Use query engine to generate SQL
     if (window.__QUERY_ENGINE__) {
-      const sql = window.__QUERY_ENGINE__.generateSQL(queryState);
+      const sql = window.__QUERY_ENGINE__.generateSQL(qs, {
+        tables: window.__WEB_TABLES__ || []
+      });
       document.getElementById('sqlPreview').textContent = sql;
     } else {
       // Fallback if query engine not loaded
-      const selectedColumns = selectedIndices.map(index => {
+      const selectedColumns = qs.columns.map(index => {
         return queryState.table.headers[index] || `Column ${index + 1}`;
       });
-      if (selectedColumns.length === 0) {
+      if (selectedColumns.length === 0 && !qs.groupBy.enabled) {
         document.getElementById('sqlPreview').textContent = 'SELECT ...\nFROM ...';
         return;
       }
       const tableName = queryState.table.displayName || queryState.table.id;
-      let sql = `SELECT ${selectedColumns.join(', ')}\nFROM ${tableName}`;
+      let sql = `SELECT ${selectedColumns.length ? selectedColumns.join(', ') : '*'}\nFROM ${tableName}`;
+      if (qs.groupBy.enabled) {
+        sql += `\nGROUP BY (see query engine)`;
+      }
       if (queryState.limit) {
         sql += `\nLIMIT ${queryState.limit}`;
       }
@@ -345,33 +864,42 @@
   /***********************
    *  RUN QUERY
    ***********************/
-  function runQuery() {
+  async function runQuery() {
     if (!queryState.table) return;
 
-    // Get selected columns
-    const checkboxes = document.querySelectorAll('#columnsGrid input[type="checkbox"]:checked');
-    const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.dataset.column));
-    
-    // Update query state
-    queryState.columns = selectedIndices;
-    
+    const qs = collectQueryState();
+    if (!qs) return;
+    queryState.columns = qs.columns;
+
     // Ensure default values
-    if (!queryState.filters) queryState.filters = [];
-    if (!queryState.sort) queryState.sort = [];
-    if (!queryState.limit) queryState.limit = 100;
-    if (!queryState.offset) queryState.offset = 0;
+    if (!qs.filters) qs.filters = [];
+    if (!qs.sort) qs.sort = [];
+    if (!qs.limit) qs.limit = 100;
+    if (!qs.offset) qs.offset = 0;
 
-    // Execute query using query engine
-    let results = [];
-    let execTime = 0;
-
+    // Execute query using the same SQL engine path as direct SQL (AlaSQL)
     if (window.__QUERY_ENGINE__) {
-      const queryResult = window.__QUERY_ENGINE__.executeQuery(queryState);
-      results = queryResult.results;
-      execTime = queryResult.executionTime;
+      const sql = window.__QUERY_ENGINE__.generateSQL(qs, {
+        tables: window.__WEB_TABLES__ || []
+      });
+      const out = await window.__QUERY_ENGINE__.executeSQL(sql, {
+        tables: window.__WEB_TABLES__ || [],
+        selectedTable: queryState.table
+      });
+      if (out.kind === 'error') {
+        const msg = document.getElementById('sqlMessage');
+        if (msg) msg.textContent = out.message || 'SQL execution failed.';
+        return;
+      }
+      displayResults(out.results || [], out.executionTime || 0);
+      switchTab('results');
+      return;
     } else {
       // Fallback: simple execution (old method)
       console.warn('Query engine not loaded, using fallback');
+      const selectedIndices = qs.columns;
+      let results = [];
+      let execTime = 0;
       results = queryState.table.rows.map(row => {
         const result = {};
         selectedIndices.forEach(index => {
@@ -380,17 +908,16 @@
         });
         return result;
       });
-      if (queryState.limit) {
-        results = results.slice(0, queryState.limit);
+      if (qs.limit) {
+        results = results.slice(0, qs.limit);
       }
       execTime = 0.001;
+      // Display results
+      displayResults(results, execTime);
+      // Switch to results tab
+      switchTab('results');
+      return;
     }
-
-    // Display results
-    displayResults(results, execTime);
-    
-    // Switch to results tab
-    switchTab('results');
   }
 
   /***********************
@@ -406,6 +933,7 @@
     if (results.length === 0) {
       emptyResults.style.display = 'block';
       resultsSection.style.display = 'none';
+      lastResults = [];
       return;
     }
 
@@ -434,7 +962,132 @@
     resultsTable.innerHTML = html;
     rowCount.textContent = results.length;
     execTimeEl.textContent = `${execTime}s`;
+    lastResults = Array.isArray(results) ? results : [];
   }
+
+  function escapeCsv(value) {
+    const s = value === null || value === undefined ? '' : String(value);
+    if (/[",\n]/.test(s)) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }
+
+  function makeCsvFromObjects(rows) {
+    if (!rows || !rows.length) return '';
+    const cols = Object.keys(rows[0]);
+    const lines = [cols.map(escapeCsv).join(',')];
+    rows.forEach((row) => {
+      lines.push(cols.map((c) => escapeCsv(row[c])).join(','));
+    });
+    return lines.join('\n');
+  }
+
+  function makeCsvFromTable(table) {
+    if (!table) return '';
+    const headers = table.headers || [];
+    const rows = table.rows || [];
+    const lines = [headers.map(escapeCsv).join(',')];
+    rows.forEach((row) => {
+      const vals = headers.map((_, i) => row[i]);
+      lines.push(vals.map(escapeCsv).join(','));
+    });
+    return lines.join('\n');
+  }
+
+  function downloadTextFile(filename, text, mimeType) {
+    const blob = new Blob([text], { type: mimeType || 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function showResultsMessage(text) {
+    const el = document.getElementById('resultsMessage');
+    if (!el) return;
+    el.textContent = text || '';
+  }
+
+  async function copyResultsToClipboard() {
+    if (!lastResults.length) {
+      showResultsMessage('No results to copy.');
+      return;
+    }
+    const csv = makeCsvFromObjects(lastResults);
+    try {
+      await navigator.clipboard.writeText(csv);
+      showResultsMessage('Copied to clipboard.');
+    } catch (e) {
+      console.warn('Clipboard write failed:', e);
+      showResultsMessage('Clipboard copy failed.');
+    }
+  }
+
+  function saveResultsCsv() {
+    if (!lastResults.length) return;
+    const csv = makeCsvFromObjects(lastResults);
+    downloadTextFile('query-results.csv', csv, 'text/csv;charset=utf-8');
+  }
+
+  function saveCurrentTableCsv() {
+    if (!queryState.table) return;
+    const csv = makeCsvFromTable(queryState.table);
+    const base = (queryState.table.displayName || queryState.table.id || 'table').replace(/[^a-z0-9_\-]/gi, '_');
+    downloadTextFile(`${base}.csv`, csv, 'text/csv;charset=utf-8');
+  }
+
+  function syncAfterMutation() {
+    if (window.__WEB_TABLES__) {
+      loadTables();
+    }
+    updateSQL();
+  }
+
+  async function runDirectSQL() {
+  const editor = document.getElementById('sqlEditor');
+  const msg = document.getElementById('sqlMessage');
+
+  if (!window.__QUERY_ENGINE__) {
+    msg.textContent = 'Query engine not loaded.';
+    return;
+  }
+
+  const sql = (editor.value || '').trim();
+  if (!sql) {
+    msg.textContent = 'Enter SQL first.';
+    return;
+  }
+
+  try {
+    const out = await window.__QUERY_ENGINE__.executeSQL(sql, {
+      tables: window.__WEB_TABLES__ || [],
+      selectedTable: queryState.table
+    });
+
+    if (out.kind === 'error') {
+      msg.textContent = out.message || 'SQL execution failed.';
+      return;
+    }
+
+    if (out.kind === 'query') {
+      displayResults(out.results || [], out.executionTime || 0);
+      switchTab('results');
+      msg.textContent = out.message || 'Query executed.';
+      return;
+    }
+
+    msg.textContent = out.message || 'Mutation executed.';
+    syncAfterMutation();
+
+  } catch (err) {
+    msg.textContent = err.message || 'Unexpected error';
+  }
+}
 
   /***********************
    *  UTILITY FUNCTIONS
@@ -462,12 +1115,6 @@
       sidebar.classList.remove('open');
       mainContent.style.marginRight = '0';
       toggleBtn.classList.remove('sidebar-open');
-
-      // Clear any table highlight when closing sidebar
-      if (highlightedElement) {
-        highlightedElement.classList.remove('sql-highlighted-table');
-        highlightedElement = null;
-      }
     }
   }
 
@@ -492,7 +1139,8 @@
     window.__SQL_SIDEBAR__ = {
       toggle,
       updateTables,
-      selectTable
+      selectTable,
+      openQueryForTableId
     };
 
     // Load tables if already available
