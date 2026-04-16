@@ -128,21 +128,12 @@
               <option value="DESC">DESC</option>
             </select>
           </div>
-          <div class="query-section" id="groupBySection">
-            <div class="section-title">Group by (optional)</div>
-            <label class="inline-check">
-              <input type="checkbox" id="groupByEnabled"> Enable GROUP BY &amp; aggregates
-            </label>
-            <p class="hint-text" id="groupByHint" style="display: none;">
-              Check &quot;Group&quot; for dimensions. For other columns, pick SUM / AVG / COUNT / MIN / MAX, or leave &quot;—&quot; to omit.
-            </p>
-            <div id="groupByGrid" class="groupby-grid" style="display: none;"></div>
-          </div>
           <div class="query-section">
             <div class="section-title">Generated SQL</div>
             <div class="sql-preview" id="sqlPreview">SELECT ...\nFROM ...</div>
           </div>
           <button class="btn-primary" id="runBtn" disabled>▶ Run Query</button>
+          <button class="btn-primary btn-secondary" id="clearAllBtn">🗑 Clear All</button>
           <div class="query-section">
             <div class="section-title">Run SQL Directly</div>
             <textarea id="sqlEditor" class="sql-editor" placeholder="SELECT * FROM Table 1;"></textarea>
@@ -229,15 +220,6 @@
     document.getElementById('joinRightCol').addEventListener('change', refreshJoinAndGroupUi);
     document.getElementById('joinTypeSelect').addEventListener('change', refreshJoinAndGroupUi);
 
-    const groupByEnabled = document.getElementById('groupByEnabled');
-    groupByEnabled.addEventListener('change', () => {
-      const on = groupByEnabled.checked;
-      document.getElementById('groupByGrid').style.display = on ? 'block' : 'none';
-      document.getElementById('groupByHint').style.display = on ? 'block' : 'none';
-      document.getElementById('columnsGrid').style.display = on ? 'none' : 'grid';
-      refreshJoinAndGroupUi();
-    });
-
     const whereColumn = document.getElementById('whereColumn');
     const whereOperator = document.getElementById('whereOperator');
     const whereValue = document.getElementById('whereValue');
@@ -254,6 +236,7 @@
     document.getElementById('copyResultsBtn').addEventListener('click', copyResultsToClipboard);
     document.getElementById('saveResultsCsvBtn').addEventListener('click', saveResultsCsv);
     document.getElementById('saveTableCsvBtn').addEventListener('click', saveCurrentTableCsv);
+    document.getElementById('clearAllBtn').addEventListener('click', clearAllSelections);
   }
 
   function refreshJoinAndGroupUi() {
@@ -261,7 +244,6 @@
     const signature = headers.join('\x1f');
     if (signature !== lastWorkHeaderSignature) {
       buildSelectColumnsGrid(headers, true);
-      buildGroupByGrid(headers, true);
       lastWorkHeaderSignature = signature;
     }
     updateSQL();
@@ -534,27 +516,7 @@
     if (!queryState.table) return null;
 
     const join = getJoinConfigFromUi();
-    const groupByEnabled = document.getElementById('groupByEnabled').checked;
-    const grid = document.getElementById('groupByGrid');
     const headers = getWorkHeaders();
-    const groupIndices = [];
-    const aggregates = [];
-
-    if (groupByEnabled && grid) {
-      grid.querySelectorAll('.groupby-chk').forEach((chk) => {
-        if (chk.checked) {
-          groupIndices.push(parseInt(chk.dataset.col, 10));
-        }
-      });
-      grid.querySelectorAll('.groupby-agg').forEach((sel) => {
-        const col = parseInt(sel.dataset.col, 10);
-        if (groupIndices.indexOf(col) >= 0) return;
-        const fn = sel.value;
-        if (fn) {
-          aggregates.push({ columnIndex: col, fn });
-        }
-      });
-    }
 
     const checkboxes = document.querySelectorAll('#columnsGrid input[type="checkbox"]:checked');
     const selectedIndices = Array.from(checkboxes).map((cb) => parseInt(cb.dataset.column, 10));
@@ -599,9 +561,9 @@
       offset: queryState.offset || 0,
       join,
       groupBy: {
-        enabled: groupByEnabled && (groupIndices.length > 0 || aggregates.length > 0),
-        groupIndices,
-        aggregates
+        enabled: false,
+        groupIndices: [],
+        aggregates: []
       }
     };
   }
@@ -812,13 +774,9 @@
 
     populateJoinRightSelect();
     populateJoinColumnSelects();
-    const groupOn = document.getElementById('groupByEnabled').checked;
-    document.getElementById('columnsGrid').style.display = groupOn ? 'none' : 'grid';
-    document.getElementById('groupByGrid').style.display = groupOn ? 'block' : 'none';
-    document.getElementById('groupByHint').style.display = groupOn ? 'block' : 'none';
+    document.getElementById('columnsGrid').style.display = 'grid';
 
     buildSelectColumnsGrid(getWorkHeaders(), false);
-    buildGroupByGrid(getWorkHeaders(), false);
     lastWorkHeaderSignature = getWorkHeaders().join('\x1f');
     updateSQL();
     document.getElementById('runBtn').disabled = false;
@@ -845,15 +803,12 @@
       const selectedColumns = qs.columns.map(index => {
         return queryState.table.headers[index] || `Column ${index + 1}`;
       });
-      if (selectedColumns.length === 0 && !qs.groupBy.enabled) {
+      if (selectedColumns.length === 0) {
         document.getElementById('sqlPreview').textContent = 'SELECT ...\nFROM ...';
         return;
       }
       const tableName = queryState.table.displayName || queryState.table.id;
       let sql = `SELECT ${selectedColumns.length ? selectedColumns.join(', ') : '*'}\nFROM ${tableName}`;
-      if (qs.groupBy.enabled) {
-        sql += `\nGROUP BY (see query engine)`;
-      }
       if (queryState.limit) {
         sql += `\nLIMIT ${queryState.limit}`;
       }
@@ -1048,46 +1003,198 @@
     updateSQL();
   }
 
+  function setSqlMessage(text, type) {
+    const msg = document.getElementById('sqlMessage');
+    if (!msg) return;
+    msg.textContent = text || '';
+    msg.style.color = type === 'error' ? '#b91c1c' : '';
+  }
+
+  function formatDirectSqlErrorMessage(rawMessage, sqlText) {
+    const msg = String(rawMessage || '').trim();
+    if (!msg) return 'SQL execution failed.';
+
+    const normalized = msg.replace(/\s+/g, ' ').trim();
+    const nearMatch = normalized.match(/\bnear\b\s+["'`]?([^"'`\s,;()]+)["'`]?/i);
+    const lineColMatch = normalized.match(/\bline\s+(\d+)\s*(?:[,;]?\s*(?:col|column)\s+(\d+))?/i);
+    const expectedMatch = normalized.match(/\bexpected\b[:\s]+(.+)$/i);
+
+    const details = [];
+    if (lineColMatch) {
+      const ln = lineColMatch[1];
+      const col = lineColMatch[2];
+      details.push(col ? `line ${ln}, column ${col}` : `line ${ln}`);
+    }
+    if (nearMatch) {
+      details.push(`near "${nearMatch[1]}"`);
+    }
+    if (expectedMatch) {
+      details.push(`expected ${expectedMatch[1]}`);
+    }
+
+    if (/syntax|parse|unexpected token|unexpected end|expected/i.test(normalized)) {
+      return `SQL syntax error${details.length ? ` (${details.join(', ')})` : ''}: ${msg}`;
+    }
+    if (/no such table|table .* does not exist|unknown table/i.test(normalized)) {
+      return `Table error: ${msg}`;
+    }
+    if (/no such column|unknown column|column .* not found|cannot resolve column/i.test(normalized)) {
+      return `Column error: ${msg}`;
+    }
+    if (/timed out waiting for sql engine response/i.test(normalized)) {
+      return 'SQL engine timed out. Try a simpler query or re-open the page.';
+    }
+    if (/alasql is not loaded/i.test(normalized)) {
+      return 'SQL engine is unavailable on this page. Refresh the page and try again.';
+    }
+
+    // Fallback: include first SQL line context for easier debugging.
+    const firstLine = String(sqlText || '').split(/\r?\n/).find((line) => line.trim()) || '';
+    return firstLine
+      ? `SQL error: ${msg} | Query starts with: ${firstLine.slice(0, 80)}`
+      : `SQL error: ${msg}`;
+  }
+
   async function runDirectSQL() {
-  const editor = document.getElementById('sqlEditor');
-  const msg = document.getElementById('sqlMessage');
+    const editor = document.getElementById('sqlEditor');
 
-  if (!window.__QUERY_ENGINE__) {
-    msg.textContent = 'Query engine not loaded.';
-    return;
-  }
-
-  const sql = (editor.value || '').trim();
-  if (!sql) {
-    msg.textContent = 'Enter SQL first.';
-    return;
-  }
-
-  try {
-    const out = await window.__QUERY_ENGINE__.executeSQL(sql, {
-      tables: window.__WEB_TABLES__ || [],
-      selectedTable: queryState.table
-    });
-
-    if (out.kind === 'error') {
-      msg.textContent = out.message || 'SQL execution failed.';
+    if (!window.__QUERY_ENGINE__) {
+      setSqlMessage('Query engine not loaded.', 'error');
       return;
     }
 
-    if (out.kind === 'query') {
-      displayResults(out.results || [], out.executionTime || 0);
-      switchTab('results');
-      msg.textContent = out.message || 'Query executed.';
+    const sql = (editor.value || '').trim();
+    if (!sql) {
+      setSqlMessage('Enter SQL first.', 'error');
       return;
     }
 
-    msg.textContent = out.message || 'Mutation executed.';
-    syncAfterMutation();
+    setSqlMessage('', 'info');
 
-  } catch (err) {
-    msg.textContent = err.message || 'Unexpected error';
+    try {
+      const out = await window.__QUERY_ENGINE__.executeSQL(sql, {
+        tables: window.__WEB_TABLES__ || [],
+        selectedTable: queryState.table
+      });
+
+      if (out.kind === 'error') {
+        setSqlMessage(formatDirectSqlErrorMessage(out.message, sql), 'error');
+        return;
+      }
+
+      if (out.kind === 'query') {
+        displayResults(out.results || [], out.executionTime || 0);
+        switchTab('results');
+        setSqlMessage(out.message || 'Query executed.', 'info');
+        return;
+      }
+
+      setSqlMessage(out.message || 'Mutation executed.', 'info');
+      syncAfterMutation();
+    } catch (err) {
+      setSqlMessage(formatDirectSqlErrorMessage(err && err.message, sql), 'error');
+    }
   }
-}
+
+  function clearAllSelections() {
+    selectedTable = null;
+    lastWorkHeaderSignature = '';
+    lastResults = [];
+    queryState = {
+      table: null,
+      columns: [],
+      filters: [],
+      sort: [],
+      limit: 100,
+      offset: 0,
+      join: {
+        enabled: false,
+        rightTable: null,
+        leftColumnIndex: 0,
+        rightColumnIndex: 0,
+        type: 'INNER'
+      },
+      groupBy: {
+        enabled: false,
+        groupIndices: [],
+        aggregates: []
+      }
+    };
+
+    if (highlightedElement) {
+      highlightedElement.classList.remove('sql-highlighted-table');
+      highlightedElement = null;
+    }
+
+    document.querySelectorAll('.table-card').forEach((c) => c.classList.remove('selected'));
+
+    const tableSelect = document.getElementById('tableSelect');
+    if (tableSelect) tableSelect.value = '';
+
+    const columnsGrid = document.getElementById('columnsGrid');
+    if (columnsGrid) {
+      columnsGrid.innerHTML = '';
+      columnsGrid.style.display = 'grid';
+    }
+
+    const joinEnabled = document.getElementById('joinEnabled');
+    const joinControls = document.getElementById('joinControls');
+    const joinTypeSelect = document.getElementById('joinTypeSelect');
+    const joinRightSelect = document.getElementById('joinRightSelect');
+    const joinLeftCol = document.getElementById('joinLeftCol');
+    const joinRightCol = document.getElementById('joinRightCol');
+    if (joinEnabled) joinEnabled.checked = false;
+    if (joinControls) joinControls.style.display = 'none';
+    if (joinTypeSelect) joinTypeSelect.value = 'INNER';
+    if (joinRightSelect) joinRightSelect.innerHTML = '<option value="">— Select table —</option>';
+    if (joinLeftCol) joinLeftCol.innerHTML = '';
+    if (joinRightCol) joinRightCol.innerHTML = '';
+
+    const groupByEnabled = document.getElementById('groupByEnabled');
+    const groupByGrid = document.getElementById('groupByGrid');
+    const groupByHint = document.getElementById('groupByHint');
+    if (groupByEnabled) groupByEnabled.checked = false;
+    if (groupByGrid) {
+      groupByGrid.innerHTML = '';
+      groupByGrid.style.display = 'none';
+    }
+    if (groupByHint) groupByHint.style.display = 'none';
+
+    const whereColumn = document.getElementById('whereColumn');
+    const whereOperator = document.getElementById('whereOperator');
+    const whereValue = document.getElementById('whereValue');
+    if (whereColumn) whereColumn.innerHTML = '<option value="">-- No filter --</option>';
+    if (whereOperator) whereOperator.value = '=';
+    if (whereValue) whereValue.value = '';
+
+    const orderColumn = document.getElementById('orderColumn');
+    const orderDirection = document.getElementById('orderDirection');
+    if (orderColumn) orderColumn.innerHTML = '<option value="">-- No ordering --</option>';
+    if (orderDirection) orderDirection.value = 'ASC';
+
+    const runBtn = document.getElementById('runBtn');
+    const sqlPreview = document.getElementById('sqlPreview');
+    const sqlEditor = document.getElementById('sqlEditor');
+    const sqlMessage = document.getElementById('sqlMessage');
+    if (runBtn) runBtn.disabled = true;
+    if (sqlPreview) sqlPreview.textContent = 'SELECT ...\nFROM ...';
+    if (sqlEditor) sqlEditor.value = '';
+    if (sqlMessage) sqlMessage.textContent = '';
+
+    const resultsMessage = document.getElementById('resultsMessage');
+    const resultsTable = document.getElementById('resultsTable');
+    const emptyResults = document.getElementById('emptyResults');
+    const resultsSection = document.getElementById('resultsSection');
+    const rowCount = document.getElementById('rowCount');
+    const execTimeEl = document.getElementById('execTime');
+    if (resultsMessage) resultsMessage.textContent = '';
+    if (resultsTable) resultsTable.innerHTML = '';
+    if (emptyResults) emptyResults.style.display = 'block';
+    if (resultsSection) resultsSection.style.display = 'none';
+    if (rowCount) rowCount.textContent = '0';
+    if (execTimeEl) execTimeEl.textContent = '0.00s';
+    populateJoinRightSelect();
+  }
 
   /***********************
    *  UTILITY FUNCTIONS
