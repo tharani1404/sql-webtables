@@ -852,12 +852,11 @@
     } else {
       // Fallback: simple execution (old method)
       console.warn('Query engine not loaded, using fallback');
-      const selectedIndices = qs.columns;
       let results = [];
       let execTime = 0;
       results = queryState.table.rows.map(row => {
         const result = {};
-        selectedIndices.forEach(index => {
+        qs.columns.forEach(index => {
           const colName = queryState.table.headers[index] || `Column ${index + 1}`;
           result[colName] = row[index] || '';
         });

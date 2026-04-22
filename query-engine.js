@@ -4,7 +4,6 @@
 
 (function() {
   'use strict';
-
   // 🔥 NEW: helper to run SQL via page (AlaSQL)
   function runSQLViaPage(sqlText, tables) {
     return new Promise((resolve, reject) => {

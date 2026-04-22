@@ -19,6 +19,8 @@ function injectScript(file) {
   await injectScript('page-bridge.js');
   console.log("✅ AlaSQL + Bridge loaded in page");
 })();
+
+
 function detectSemanticTables() {
   const results = [];
 
